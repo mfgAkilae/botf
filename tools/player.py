@@ -18,6 +18,11 @@ rnd = random.Random(seed * 10 + ord(INST))
 PID = H.load_state()[INST]
 dlg = Dialogs()
 STOP = os.path.join(out, 'stop')
+SPEED = float(os.environ.get('BOTF_SPEED', '0.4'))   # scales every pause of the agent (1.0 = slow, human-like)
+
+
+def nap(t):
+    time.sleep(max(0.05, t * SPEED))
 LOG = open(os.path.join(out, 'player_%s.log' % INST), 'a')
 ACT = open(os.path.join(out, 'player_%s_actions.log' % INST), 'a')
 
@@ -69,22 +74,22 @@ def stopped():
 
 def key(vk):
     act('key %#x' % vk)
-    hw = H.main_window(PID); H.user32.PostMessageW(hw, 0x100, vk, 1); time.sleep(0.03); H.user32.PostMessageW(hw, 0x101, vk, 0xC0000001)
+    hw = H.main_window(PID); H.user32.PostMessageW(hw, 0x100, vk, 1); nap(0.03); H.user32.PostMessageW(hw, 0x101, vk, 0xC0000001)
 
 
 def click(xy, wait=0.35):
     act('click %d,%d' % tuple(xy))
-    H.click(H.main_window(PID), xy[0], xy[1], pid=PID); time.sleep(wait)
+    H.click(H.main_window(PID), xy[0], xy[1], pid=PID); nap(wait)
 
 
 def hold(xy, t=0.5):
     # labor arrows react only to a held button
     act('hold %d,%d %.1fs' % (xy[0], xy[1], t))
     hw = H.main_window(PID)
-    H.set_cursor(PID, *xy); time.sleep(0.15); cx, cy = H.game2client(hw, *xy)
-    H.user32.PostMessageW(hw, H.WM_MOUSEMOVE, 0, H.lparam(cx, cy)); time.sleep(0.05)
-    H.user32.PostMessageW(hw, H.WM_LBUTTONDOWN, H.MK_LBUTTON, H.lparam(cx, cy)); time.sleep(t)
-    H.user32.PostMessageW(hw, H.WM_LBUTTONUP, 0, H.lparam(cx, cy)); time.sleep(0.4)
+    H.set_cursor(PID, *xy); nap(0.15); cx, cy = H.game2client(hw, *xy)
+    H.user32.PostMessageW(hw, H.WM_MOUSEMOVE, 0, H.lparam(cx, cy)); nap(0.05)
+    H.user32.PostMessageW(hw, H.WM_LBUTTONDOWN, H.MK_LBUTTON, H.lparam(cx, cy)); time.sleep(t)   # hold time is not scaled
+    H.user32.PostMessageW(hw, H.WM_LBUTTONUP, 0, H.lparam(cx, cy)); nap(0.4)
 
 
 def credits():
@@ -112,7 +117,7 @@ def menu_guard():
 
 def esc_safe():
     # leave sub screens with F1 (galaxy map) instead of Escape: Escape on the galaxy map opens the main menu
-    key(0x70); time.sleep(0.6)
+    key(0x70); nap(0.6)
     menu_guard()
 
 
@@ -124,16 +129,16 @@ def browse(n=None):
         if r < 0.55:
             xy = rnd.choice(TABS); click(xy, 0.1); acts.append('tab%d' % xy[0])
         elif r < 0.8:
-            vk = rnd.choice([0x71, 0x72, 0x73]); key(vk); time.sleep(0.4); key(0x70); acts.append('F%d' % (vk - 0x6f))
+            vk = rnd.choice([0x71, 0x72, 0x73]); key(vk); nap(0.4); key(0x70); acts.append('F%d' % (vk - 0x6f))
         else:
             key(0x70); acts.append('F1')
-        time.sleep(rnd.uniform(0.1, 0.6))
+        nap(rnd.uniform(0.1, 0.6))
     return acts
 
 
 def fleets():
     acts = []
-    key(0x70); time.sleep(0.5)
+    key(0x70); nap(0.5)
     for _ in range(rnd.randint(1, 3)):
         click(L['home'], 0.6)
         click((L['tfx'], rnd.choice(L['tfy'])), 0.5)
@@ -142,7 +147,7 @@ def fleets():
             dst = (rnd.randint(275, 745), rnd.randint(50, 400)); click(dst, 0.5); acts.append('move%d,%d' % dst)
         elif r < 0.5 and L['orders']:
             click(L['orders'], 0.9); m = rnd.choice(L['missions']); click(m, 0.6); acts.append('mission%d,%d' % m)
-            esc_safe(); key(0x70); time.sleep(0.4)
+            esc_safe(); key(0x70); nap(0.4)
     return acts
 
 
@@ -200,7 +205,7 @@ def production():
         if rnd.random() < 0.3:
             click(L['tabs']['prod'], 0.6)
             hold((L['arrows'][0][rnd.randint(0, 1)], L['arrows'][1][rnd.randint(0, 4)]), 0.5); acts.append('colonylabor')
-    esc_safe(); key(0x70); time.sleep(0.4)
+    esc_safe(); key(0x70); nap(0.4)
     return acts
 
 
@@ -212,12 +217,12 @@ def press(t):
     for attempt in range(8):
         if busy() != 0 or turn() > t:
             return True
-        key(0x70); time.sleep(0.4)
+        key(0x70); nap(0.4)
         if not handle_dialogs(dlg, INST, PID, log) and attempt >= 2:
             act('generic_dismiss (Escape)'); generic_dismiss(INST, PID, log); menu_guard()
         act('TURN click'); H.click(H.main_window(PID), *L['turn'], pid=PID)
         for _ in range(10):
-            time.sleep(0.3)
+            nap(0.3)
             if busy() != 0 or turn() > t:
                 return True
     return False
@@ -247,13 +252,13 @@ def find_home():
 
 def open_home():
     # galaxy map, select the home world (UI selection [[0x595da8]+0x1c], same effect as clicking it), F2
-    key(0x70); time.sleep(0.4)
+    key(0x70); nap(0.4)
     if HOME_IDX is not None and HOME_IDX < struct.unpack('<H', H.readmem(PID, 0x5a36bc, 2))[0]:
         ui = struct.unpack('<I', H.readmem(PID, 0x595da8, 4))[0]
         H.writemem(PID, ui + 0x1c, struct.pack('<h', HOME_IDX)); act('select home %d' % HOME_IDX)
     else:
         click(L['home'], 0.5)
-    key(0x71); time.sleep(0.8)
+    key(0x71); nap(0.8)
 
 
 def swap_new_build():
@@ -266,7 +271,7 @@ def swap_new_build():
         open_home()
         click(L['tabs']['build'], 0.6)
         acts = ['newbuild-at-home(%s)' % rec[:12].hex()] + replan()
-        key(0x70); time.sleep(0.4)
+        key(0x70); nap(0.4)
     LAST_REC = home_record()
     return acts
 
@@ -279,8 +284,8 @@ def main():
         if t == last or busy() != 0:                           # turn not started yet (or still processing)
             if busy() == 0:
                 handle_dialogs(dlg, INST, PID, log)
-            time.sleep(0.5); continue
-        time.sleep(rnd.uniform(1.5, 4.0))                      # look at the new turn, read events
+            nap(0.5); continue
+        nap(rnd.uniform(1.5, 4.0))                      # look at the new turn, read events
         handle_dialogs(dlg, INST, PID, log)
         if HOME_IDX is None:
             find_home()
@@ -292,7 +297,7 @@ def main():
             if stopped():
                 return
             acts += f()
-            time.sleep(rnd.uniform(0.3, 2.0))
+            nap(rnd.uniform(0.3, 2.0))
         if not press(t):
             log('turn %d: TURN press failed' % t); screen(INST, PID, os.path.join('..', out, 'pressfail_%s_t%d' % (INST, t)))
             last = t; continue
@@ -305,7 +310,7 @@ def main():
                 acts += ['(processing)' + a for a in browse(rnd.randint(1, 2))]; waits += 1
             if time.time() - t0 > 6:
                 handle_dialogs(dlg, INST, PID, log)
-            time.sleep(rnd.uniform(0.5, 2.0))
+            nap(rnd.uniform(0.5, 2.0))
         log('turn %d -> %d (%.0fs): %s' % (t, turn(), time.time() - t0, ' '.join(acts)))
         last = t
 
