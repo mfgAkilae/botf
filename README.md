@@ -78,10 +78,26 @@ sends its own state to everybody). A save made after the problem does not show t
 
 ## Open points
 
-- **Silent exits.** Three times in the long runs a game process ended without `Crash.log` during turn
-  processing (once right after a player was eliminated); the other players then see "Disconnected".
-  The cause is not found yet; it could not be reproduced on demand. The tracer now logs every exception
-  and exit code, and further long runs are in progress.
+- **Silent exits (the "Disconnected" symptom).** Four times in the long runs a game process ended
+  without `Crash.log` during turn processing (once right after a player was eliminated); the other
+  players then see "Disconnected". One of them was caught with the debugger attached (fixed build,
+  host instance, turn 311):
+  - Access violation `c0000005` **writing** to `0x0e355000` at `0x00513de2`, process exit code
+    `0xc0000005`. The game's own crash handler does not run, so no `Crash.log` is written.
+  - `0x513de2` is the `rep movsd` in `FUN_00513dc0`, which appends the inflate output window to the
+    resource buffer at `[0x59776c] + [0x5cd72c]` **without any bounds check**. The block being copied
+    was `0x8000` bytes (one full deflate window); `0x4fe0` bytes had been written when the copy ran
+    into unmapped memory exactly at a page boundary.
+  - Call chain: `FUN_00515200` (load a file from `stbof.res`) → `FUN_005148e4` (allocate the buffer:
+    uncompressed size + name length + 1, from a 5 × 80 KB pool or the heap) → `FUN_00548440` / inflate
+    (`0x548xxx`) → `FUN_00513dc0`.
+  - So the loader writes past the end of its buffer. Usually that silently overwrites the next heap
+    block; it only crashes when the buffer happens to end at the end of a memory region, which explains
+    why the exits are rare and happen at random turns.
+  - Ruled out so far: the archive itself (all 5878 entries of `stbof.res` decompress to exactly their
+    declared size) and concurrent loading (every load runs on the game's main thread).
+  - Not found yet: why the decompressed output exceeds the buffer in that moment. The tracer now logs
+    every resource load (name, buffer, size) and the loader state at a crash; long runs are in progress.
 - Candidates from static analysis that are not tested yet (see `docs/static_audit.md`): losing a
   shipyard while a ship is being built, the morale "production boost" event at morale ≥ 192, ship-class
   refit orders.
