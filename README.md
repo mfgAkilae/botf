@@ -151,5 +151,5 @@ fixed screen coordinates of one particular game and are kept for reference only.
 
 ## License
 
-Apache 2.0 for the code in this repository. *Star Trek: Birth of the Federation* is © its rights
+MIT for the code in this repository (see `LICENSE`). *Star Trek: Birth of the Federation* is © its rights
 holders; this project contains none of its files.
