@@ -28,8 +28,9 @@ env = dict(os.environ, TRACER_STOP=stopf, ONLY2='1')
 tr = [subprocess.Popen([sys.executable, '-I', '-u', os.path.join(HERE, 'ktrace.py'), str(P[x]), '86400'],
                        stdout=open(os.path.join(out, 'ktrace_%s.log' % x), 'a'), stderr=subprocess.STDOUT, env=env) for x in NAMES]
 time.sleep(3)
-MASK0 = H.readmem(P['A'], 0x5a2b28, 1)[0]
-start = u32(P['A'], TURN_ADDR)
+MASK0 = H.readmem(P[NAMES[0]], 0x5a2b28, 1)[0]
+start = u32(P[NAMES[0]], TURN_ADDR)
+idle = {}
 snaps = {}                      # turn -> {inst: snapshot taken when that game became idle at that turn}
 seen = {x: u32(P[x], TURN_ADDR) for x in NAMES}
 last_progress = time.time(); reason = None; progress_turn = min(seen.values())
@@ -64,7 +65,11 @@ try:
         for x in live:
             t = u32(P[x], TURN_ADDR)
             if t > seen[x] and i32(P[x], BUSY_ADDR) == 0:
-                snaps.setdefault(t, {})[x] = snapshot(P[x]); seen[x] = t
+                # busy is cleared inside the turn code (0x4586d8) before the heartbeat CRCs are computed
+                # (0x458233): only snapshot a game that has been idle for a second
+                idle.setdefault((x, t), time.time())
+                if time.time() - idle[(x, t)] >= 1.0:
+                    snaps.setdefault(t, {})[x] = snapshot(P[x]); seen[x] = t
         if min(seen[x] for x in live) > progress_turn:                 # progress means both games advanced
             progress_turn = min(seen[x] for x in live); last_progress = time.time()
         for t in sorted(list(snaps)):                          # compare each turn once both games reached it
