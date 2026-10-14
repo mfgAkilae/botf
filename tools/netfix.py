@@ -1,0 +1,448 @@
+"""BotF multiplayer network/desync fix for trek.exe (vanilla 2.0.4 English/German builds).
+
+Fix A  End-of-turn message order: send the production queues (msg 0x74) BEFORE the orders
+       (msg 0x68). The 0x68 handler on the other machines starts turn processing as soon as the
+       last player's orders arrive; queues sent afterwards were applied in the middle of (or after)
+       turn processing -> remote machines produced with stale build queues -> desync.
+Fix B  While a machine is processing a turn (busy flag 0x5a291c == 1) incoming 0x68/0x74
+       (orders / queues of a faster player for the NEXT turn) are no longer applied in the middle
+       of turn processing (the turn code pumps messages). Their notifications are parked and
+       re-posted, in order, once processing has finished.
+Fix C  DPMP send loop (dpmppckt.c): the network critical section was held for the whole message
+       including a Sleep(10) per 466-byte packet and synchronous guaranteed sends (one ack round
+       trip each); the receive thread was blocked meanwhile. Now the lock only covers the shared
+       sequence counters, the per-packet Sleep is 0, and a failing IDirectPlay::Send is retried
+       for ~5 s instead of forever (an endless retry froze the game when a peer was gone).
+
+Fix D  Keepalive: the receive thread now wakes every 10 s and sends a 1-byte unreliable message
+       to all players (ignored by every receiver, patched or not). Late-game turn calculations
+       can take minutes without any game traffic; idle UDP mappings in NAT routers/firewalls
+       expire and DirectPlay only starts pinging after 35 s of silence (and only towards the
+       host), after which unanswered pings drop the player ("Disconnected" / host migration).
+
+Fix I  Martial law (production action 7) counts its turns in the word at system+0x86. When the
+       owner removes martial law from the head of a build queue, its own UI kill (mode 1) leaves the
+       record alone and the new selection writes +0x86 = 0; the other machines execute the kill
+       request (mode 2), which resets +0x80..+0x99 but only the WORD at +0x84, so +0x86 keeps the
+       old count. After re-selecting martial law the other machines reach the race threshold
+       earlier and raise the system's morale (+0x2dc, inside the heartbeat crcSolarBld) one or more
+       turns before the owner: "A synchronization error has occurred", same seed, only crcSolarBld
+       differs (reproduced on the original exe with 5 players, turn 105). The mode-2 reset now
+       clears the dword +0x84..+0x87.
+
+Fix M  Production orders that the owner creates during turn processing (queue advance, re-arm)
+       exist only on the owner until its next end-of-turn message. When the owner deletes such a
+       build in the following turn, its kill request (type 9, target seqno only) finds nothing on
+       the other machines ("Failed to Kill order"), so they skip the production reset and keep the
+       old build's invested industry; the replacement build then gets that industry on every machine
+       except the owner and completes earlier there -> crcSolarBld-only sync error (reproduced on the
+       original with 5 players: delete a fresh multi-turn build). The kill request now carries the
+       target system in its order header (+0x0c = 0x4B4B0000 | system, transmitted with the header,
+       ignored by unpatched games), and a kill request that finds no order applies the same
+       production reset to that system.
+
+Fix N  Deleting a build that was BOUGHT (queue screen, "delete current build?" -> YES, FUN_004fd7b8)
+       removes the buy order (production order sub-kind 1) only on the owner's machine: the code
+       calls the local kill (mode 1) but, unlike every other delete path, sends no kill request.
+       The other machines keep the buy order and charge/complete the purchase later, so the
+       system's build cost total (+0x2c2, inside crcSolarBld) differs -> sync error. Found by a
+       natural 5-player test game on the original (turn 331) and reproduced from its turn-320 save.
+       The delete path now sends the kill request like the others.
+
+All changes keep the wire format (packet size, header, message ids) unchanged, so patched and
+unpatched peers can still connect; the fixes take full effect when every player is patched.
+"""
+import struct
+from asmutil import asm, call_rel, jmp_rel
+
+IAT_ENTER = 0x5744ac
+IAT_LEAVE = 0x574548
+IAT_SLEEP = 0x574594
+IAT_POSTMSG = 0x57462c
+NET_HWND = 0x5a074c        # window that receives 0x400 network notifications
+BUSY = 0x5a291c            # 1 = turn processing, -1 = waiting for others, 0 = idle
+NETCS = 0x688600           # DPMP critical section
+SEND_PACKET = 0x54bc10     # IDirectPlay::Send wrapper, returns 1 on success
+IAT_WFSO = 0x5745c0
+IAT_TIMEGETTIME = 0x5743fc
+IDPLAY = 0x5a0730          # IDirectPlay3A*
+SESSION_OPEN = 0x5fd97c
+LOCAL_DPID = 0x5fd8c4
+RX_RUNNING = 0x5a0748      # receive thread run flag
+KEEPALIVE_MS = 10000
+MAX_DEFER = 24
+SEND_TRIES = 250           # x 20 ms
+
+# Code goes into an unused, zero-filled area of the code section (0x516e5c..0x517e00, zero in all
+# 134 trek.exe builds shipped with the 2.0.4 installer); mutable data into the unused tail of
+# .bss (last variable referenced anywhere is 0x6896d4, the section ends at 0x689800).
+CODE_CAVE, CODE_CAVE_END = 0x516e60, 0x517e00
+DATA_CAVE, DATA_CAVE_END = 0x6896e0, 0x689800
+
+
+def apply(p):
+    data = DATA_CAVE
+    d_fail = data + 0x00
+    d_count = data + 0x04
+    # +0x08 keepalive byte, +0x0c last keepalive time (see Fix D)
+    d_arr = data + 0x10                      # MAX_DEFER * (wParam, lParam)
+    assert d_arr + MAX_DEFER * 8 <= DATA_CAVE_END
+    if any(p.read(CODE_CAVE, CODE_CAVE_END - CODE_CAVE)):
+        raise ValueError('code cave 0x516e60 is not free in this trek.exe')
+    code = CODE_CAVE
+    out = {}
+
+    def put(name, text):
+        nonlocal code
+        b = asm(text, code)
+        assert code + len(b) <= CODE_CAVE_END
+        p.write(code, b)
+        out[name] = code
+        code += (len(b) + 15) & ~15
+        return out[name]
+
+    # ---- flush parked notifications (pushad-safe helper, stdcall-free) -----------------
+    flush = put('flush', f'''
+        pushad
+        xor esi, esi
+    loop_:
+        cmp esi, dword ptr [{d_count:#x}]
+        jae done
+        mov eax, dword ptr [{d_arr:#x} + esi*8 + 4]
+        push eax
+        mov eax, dword ptr [{d_arr:#x} + esi*8]
+        push eax
+        push 0x400
+        push dword ptr [{NET_HWND:#x}]
+        call dword ptr [{IAT_POSTMSG:#x}]
+        inc esi
+        jmp loop_
+    done:
+        mov dword ptr [{d_count:#x}], 0
+        popad
+        ret
+    ''')
+
+    # ---- Fix B: dispatcher hook at 0x50a709 (after the message id lookup) -------------
+    # regs here: AX = message id, ECX = window message, ESI = wParam, EDI = lParam
+    disp = put('dispatch', f'''
+        mov word ptr [esp], ax
+        mov eax, dword ptr [esp]
+        cmp ecx, 0x400
+        jne go
+        cmp dword ptr [{BUSY:#x}], 1
+        je busy
+        cmp dword ptr [{d_count:#x}], 0
+        je go
+        call park
+        call {flush:#x}
+        jmp skip
+    busy:
+        cmp ax, 0x68
+        je park_it
+        cmp ax, 0x74
+        je park_it
+        jmp go
+    park_it:
+        cmp dword ptr [{d_count:#x}], {MAX_DEFER - 1}
+        jae go
+        call park
+    skip:
+        jmp 0x50a762
+    go:
+        jmp 0x50a710
+    park:
+        push eax
+        mov eax, dword ptr [{d_count:#x}]
+        mov dword ptr [{d_arr:#x} + eax*8], esi
+        mov dword ptr [{d_arr:#x} + eax*8 + 4], edi
+        inc dword ptr [{d_count:#x}]
+        pop eax
+        ret
+    ''')
+    p.patch(0x50a709, '668904248b0424', jmp_rel(0x50a709, disp) + b'\x90\x90')
+
+    # ---- Fix B: re-post parked notifications when turn processing ends (0x4586d6) -------
+    endturn = put('endturn', f'''
+        mov dword ptr [{BUSY:#x}], 0
+        call {flush:#x}
+        xor edi, edi
+        ret
+    ''')
+    p.patch(0x4586d6, '31ff893d1c295a00', call_rel(0x4586d6, endturn) + b'\x90\x90\x90')
+
+    # ---- Fix A: send production queues (0x74) before orders (0x68) ----------------------
+    p.patch(0x458155, call_rel(0x458155, 0x456340), call_rel(0x458155, 0x44d580))
+    p.patch(0x45815a, call_rel(0x45815a, 0x44d580), call_rel(0x45815a, 0x456340))
+
+    # ---- Fix C: send loop locking ---------------------------------------------------------
+    # 0x54e042: after the shared counters were read -> leave the critical section
+    unlock = put('unlock', f'''
+        mov dword ptr [esp+0x34], edx
+        mov dword ptr [esp+0x28], eax
+        pushad
+        push {NETCS:#x}
+        call dword ptr [{IAT_LEAVE:#x}]
+        popad
+        mov dword ptr [{d_fail:#x}], 0
+        jmp 0x54e04a
+    ''')
+    p.patch(0x54e042, '8954243489442428', jmp_rel(0x54e042, unlock) + b'\x90\x90\x90')
+    # 0x54e1f4: re-enter before the counters are incremented (original code leaves it after)
+    relock = put('relock', f'''
+        pushad
+        push {NETCS:#x}
+        call dword ptr [{IAT_ENTER:#x}]
+        popad
+        push {NETCS:#x}
+        jmp 0x54e1f9
+    ''')
+    p.patch(0x54e1f4, '6800866800', jmp_rel(0x54e1f4, relock))
+    # bounded retry instead of an endless loop around IDirectPlay::Send
+    send = put('send', f'''
+        cmp dword ptr [{d_fail:#x}], 0
+        jne give_up
+        push esi
+        mov esi, {SEND_TRIES}
+    try_:
+        push eax
+        push edx
+        push ebx
+        push ecx
+        call {SEND_PACKET:#x}
+        cmp eax, 1
+        je ok
+        dec esi
+        jz fail
+        push 20
+        call dword ptr [{IAT_SLEEP:#x}]
+        pop ecx
+        pop ebx
+        pop edx
+        pop eax
+        jmp try_
+    ok:
+        add esp, 16
+        pop esi
+        mov eax, 1
+        ret
+    fail:
+        add esp, 16
+        pop esi
+        mov dword ptr [{d_fail:#x}], 1
+    give_up:
+        mov eax, 1
+        ret
+    ''')
+    p.patch(0x54e172, call_rel(0x54e172, SEND_PACKET), call_rel(0x54e172, send))
+    # no artificial 10 ms pause per packet
+    if p.read(0x54e1cd, 2) != bytes.fromhex('6a00'):   # community packet.patch already sets 0
+        p.patch(0x54e1cd, '6a0a', '6a00')
+
+    # ---- Fix D: application keepalive from the receive thread ------------------------------
+    # The receive thread waited INFINITE for DirectPlay's message event. Now it wakes up every
+    # 10 s and sends a 1-byte non-guaranteed message to all players. Receivers (patched or not)
+    # drop messages shorter than 4 bytes before the game sees them (0x54da49). This keeps the
+    # link (and NAT/firewall mappings) alive while a machine sits in a long turn calculation.
+    ka_byte = data + 0x08      # payload of the keepalive message (zero-initialised .bss)
+    d_lastka = data + 0x0c
+    keepalive = put('keepalive', f'''
+        pushad
+        mov eax, dword ptr [{IDPLAY:#x}]
+        test eax, eax
+        jz done
+        cmp dword ptr [{SESSION_OPEN:#x}], 0
+        je done
+        push 1
+        push {ka_byte:#x}
+        push 0
+        push 0
+        push dword ptr [{LOCAL_DPID:#x}]
+        push eax
+        mov ecx, dword ptr [eax]
+        call dword ptr [ecx+0x68]
+    done:
+        popad
+        ret
+    ''')
+    # time based: every wake-up (message or 1 s timeout) checks whether 10 s have passed since
+    # the last keepalive, so each side sends regardless of how much it receives
+    rxwait = put('rxwait', f'''
+    wait_:
+        cmp dword ptr [{RX_RUNNING:#x}], 1
+        jne skipka
+        pushad
+        call dword ptr [{IAT_TIMEGETTIME:#x}]
+        mov edx, eax
+        sub edx, dword ptr [{d_lastka:#x}]
+        cmp edx, {KEEPALIVE_MS}
+        jb noka
+        mov dword ptr [{d_lastka:#x}], eax
+        call {keepalive:#x}
+    noka:
+        popad
+    skipka:
+        push 1000
+        push edi
+        call dword ptr [{IAT_WFSO:#x}]
+        cmp eax, 0x102
+        jne got
+        cmp dword ptr [{RX_RUNNING:#x}], 1
+        jne quit
+        jmp wait_
+    got:
+        jmp 0x54db24
+    quit:
+        jmp 0x54db2d
+    ''')
+    # 0x54db13: push -1 / push edi / call [WaitForSingleObject] / cmp eax,0x102 / jz  (17 bytes)
+    p.patch(0x54db13, '6aff572eff15c04557003d020100007409', jmp_rel(0x54db13, rxwait) + b'\x90' * 12)
+    # the receive loop jumps back to 0x54db13 after each batch -> lands on our wait loop
+
+    # ---- Fix E: no "kill order" requests from deterministic turn processing --------------------
+    # Orders carry a sequence number from per-empire counters (0x590230..0x590244). The counters
+    # are machine local and drift apart (UI code creates search orders all the time), so the same
+    # logical order has different numbers on different machines. FUN_00457940 creates a type-9
+    # "kill request" (payload = the target's LOCAL sequence number) that is sent with the next
+    # orders message; every other machine executes it at the start of its next turn by matching
+    # the sequence number only (FUN_00457890 -> FUN_004576c4 mode 2 -> matcher 0x457b50).
+    # Turn processing itself calls FUN_00457940 (e.g. FUN_00466468) and then kills the target
+    # locally; every machine runs the same code, so the request is redundant - but on the
+    # receivers its number can belong to a different live order (minor race / own orders), which
+    # then gets killed on that machine only -> desync, more likely the more orders a game has.
+    # Requests are now only created outside turn processing (player actions, also while a
+    # nested message pump runs inside the turn).
+    d_depth = data + 0xd0       # DispatchMessage nesting depth
+    d_depth0 = data + 0xd4      # depth when turn processing started
+    assert d_depth0 + 4 <= DATA_CAVE_END
+    dwrap = put('dispatchwrap', f'''
+        inc dword ptr [{d_depth:#x}]
+        push dword ptr [esp+4]
+        call dword ptr [0x5745ec]
+        dec dword ptr [{d_depth:#x}]
+        ret 4
+    ''')
+    for site in (0x402232, 0x4023ca, 0x402509):
+        p.patch(site, '2eff15ec455700', call_rel(site, dwrap) + b'\x90\x90')
+    pstart = put('pstart', f'''
+        mov dword ptr [{BUSY:#x}], 1
+        push eax
+        mov eax, dword ptr [{d_depth:#x}]
+        mov dword ptr [{d_depth0:#x}], eax
+        pop eax
+        ret
+    ''')
+    p.patch(0x458215, 'c7051c295a0001000000', call_rel(0x458215, pstart) + b'\x90' * 5)
+    krq = put('killreq', f'''
+        mov ecx, dword ptr [0x5a2924]
+        cmp dword ptr [{BUSY:#x}], 1
+        jne done
+        push eax
+        mov eax, dword ptr [{d_depth:#x}]
+        cmp eax, dword ptr [{d_depth0:#x}]
+        pop eax
+        jne done
+        xor ecx, ecx
+    done:
+        ret
+    ''')
+    # 0x457946: mov ecx,[MP flag]; the following test ecx,ecx / jnz skips the request when 0
+    p.patch(0x457946, '8b0d24295a00', call_rel(0x457946, krq) + b'\x90')
+
+    # ---- Fix I: mode-2 production reset also clears the martial-law turn counter +0x86 ----------
+    # original 0x45774a..0x457786 (EDX = system index * 0x328, EAX = system array base):
+    #   mov word [edx+eax+0x84],0 / mov dword [edx+eax+0x80],0 / mov word [edx+eax+0x88],0x7fff /
+    #   mov word [edx+eax+0x8a],0x7fff / mov word [edx+eax+0x90],0xffff / mov word [edx+eax+0x98],0
+    # EDX and EAX are reloaded right after (0x457787 / 0x45778e).
+    old_i = ('66c78402840000000000' 'c784028000000000000000' '66c7840288000000ff7f'
+             '66c784028a000000ff7f' '66c7840290000000ffff' '66c78402980000000000')
+    new_i = asm('''
+        add edx, eax
+        mov dword ptr [edx+0x80], 0
+        mov dword ptr [edx+0x84], 0
+        mov dword ptr [edx+0x88], 0x7fff7fff
+        mov word ptr [edx+0x90], 0xffff
+        mov word ptr [edx+0x98], 0
+    ''', 0x45774a)
+    assert len(new_i) <= 61
+    p.patch(0x45774a, old_i, new_i + bytes([0x90]) * (61 - len(new_i)))
+
+    # ---- Fix M: kill requests for production orders the receivers do not know yet -----------------
+    # owner side, FUN_00457940 after the kill request (ECX) got its body: [esp+4] = target header
+    killmark = put('killmark', f'''
+        mov eax, dword ptr [esp+8]
+        mov edx, dword ptr [ecx+0x14]
+        push eax
+        mov eax, dword ptr [eax]
+        mov dword ptr [edx], eax
+        pop eax
+        cmp dword ptr [eax+0x10], 0
+        jne done
+        mov edx, dword ptr [eax+0x14]
+        test edx, edx
+        jz done
+        push ebx
+        mov ebx, dword ptr [edx]
+        test ebx, ebx
+        jz mark
+        cmp ebx, 2
+        jne nomark
+    mark:
+        movzx ebx, word ptr [edx+4]
+        or ebx, 0x4b4b0000
+        mov dword ptr [ecx+0xc], ebx
+    nomark:
+        pop ebx
+    done:
+        mov edx, dword ptr [ecx+0x14]
+        ret
+    ''')
+    # 0x4579cb: mov eax,[esp+4] / mov edx,[ecx+0x14] / mov eax,[eax] / mov [edx],eax  (11 bytes)
+    p.patch(0x4579cb, '8b4424048b51148b008902', call_rel(0x4579cb, killmark) + bytes([0x90]) * 6)
+    # receiver side, FUN_004576c4 mode 2 "Failed to Kill order" (ECX = kill request header)
+    nfreset = put('nfreset', f'''
+        mov eax, dword ptr [ecx+0xc]
+        mov edx, eax
+        and edx, 0xffff0000
+        cmp edx, 0x4b4b0000
+        jne orig
+        and eax, 0xffff
+        cmp ax, word ptr [0x5a36bc]
+        jae orig
+        imul eax, eax, 0x328
+        add eax, dword ptr [0x5a36c8]
+        mov dword ptr [eax+0x80], 0
+        mov dword ptr [eax+0x84], 0
+        mov dword ptr [eax+0x88], 0x7fff7fff
+        mov word ptr [eax+0x90], 0xffff
+        mov word ptr [eax+0x98], 0
+    orig:
+        xor eax, eax
+        push edi
+        mov esi, dword ptr [ecx]
+        push esi
+        mov edi, dword ptr [ecx+4]
+        jmp 0x4577e2
+    ''')
+    # 0x4577db: push edi / mov esi,[ecx] / push esi / mov edi,[ecx+4]  (7 bytes)
+    p.patch(0x4577db, '578b31568b7904', jmp_rel(0x4577db, nfreset) + bytes([0x90]) * 2)
+
+    # ---- Fix N: send a kill request when a bought build is deleted from the queue -------------------
+    buydel = put('buydel', f'''
+        mov eax, dword ptr [esp+0x2e4]
+        cmp dword ptr [0x5a2924], 0
+        je local
+        push eax
+        call 0x457940
+        pop eax
+    local:
+        mov edx, 1
+        call 0x4576c4
+        ret
+    ''')
+    # 0x4fd923: mov edx,1 / mov eax,[esp+0x2e0] / call 0x4576c4  (17 bytes)
+    p.patch(0x4fd923, 'ba01000000' '8b8424e0020000' + call_rel(0x4fd92f, 0x4576c4).hex(),
+            call_rel(0x4fd923, buydel) + bytes([0x90]) * 12)
+
+    out["code_end"] = code
+    return out

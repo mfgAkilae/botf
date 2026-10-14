@@ -1,0 +1,17 @@
+# game files and anything derived from the copyrighted game are not part of this repository
+*.exe
+*.dll
+*.sav
+*.res
+export_en/
+ghidra_proj/
+dplay/
+tpl/
+shots/
+turnlog/
+saves/
+# per-machine test bed state
+tools/harness_state.json
+tools/window_layout.json
+__pycache__/
+.venv/

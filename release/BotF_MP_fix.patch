@@ -1,0 +1,214 @@
+NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law desyncs)
+AUTHOR: Claude (Anthropic) for Stephan, 2026-10-14
+DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.
+DESC: B) orders/queues of a faster player that arrive while this machine is still calculating
+DESC:    the turn are parked and handled after the calculation instead of in the middle of it.
+DESC: C) DPMP send loop no longer blocks the receive thread for a whole message; a failing
+DESC:    IDirectPlay::Send is retried ~5 s instead of forever (freeze when a player was gone).
+DESC: D) 1-byte keepalive every 10 s from the receive thread keeps idle links alive during long turns.
+DESC: E) turn processing no longer sends "kill order" requests (type 9). Every machine already deletes
+DESC:    the order itself; the other machines matched the request by a sequence number that differs
+DESC:    per machine and could delete an unrelated order -> desync, more likely the longer the game runs.
+DESC: I) cancelling martial law and re-selecting it no longer leaves a stale turn counter on the other
+DESC:    machines (their morale rose a turn early -> sync error).
+DESC: M) deleting a build that the turn calculation had just started now also resets production on the
+DESC:    other machines (they kept the invested industry -> next build finished early -> sync error).
+DESC: N) deleting a BOUGHT build now tells the other machines (they kept the purchase -> sync error).
+DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.
+DESC: Uses the free code area 0x516e60-0x5171b0 (file 0x116260) and .bss 0x6896e0-0x6897b8.
+DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.
+DESC: patch file name: BotF_MP_fix.patch
+TAG: fix
+
+# >>  = vanilla/original value
+# <<  = new value
+
+>> 0x001632 2E FF 15 EC 45 57 00
+<< 0x001632 E8 29 4E 11 00 90 90
+
+>> 0x0017ca 2E FF 15 EC 45 57 00
+<< 0x0017ca E8 91 4C 11 00 90 90
+
+>> 0x001909 2E FF 15 EC 45 57 00
+<< 0x001909 E8 52 4B 11 00 90 90
+
+>> 0x056b4a 66 C7 84 02 84
+<< 0x056b4a 01 C2 C7 82 80
+
+>> 0x056b54 C7 84 02 80 00
+<< 0x056b54 00 00 C7 82 84
+
+>> 0x056b5f 66 C7 84 02 88 00 00 00 FF 7F 66 C7 84 02 8A
+<< 0x056b5f 00 C7 82 88 00 00 00 FF 7F FF 7F 66 C7 82 90
+
+>> 0x056b72 7F 66 C7 84 02 90 00 00 00 FF FF 66 C7 84 02 98
+>> 0x056b82 00 00 00 00 00
+<< 0x056b72 FF 66 C7 82 98 00 00 00 00 00 90 90 90 90 90 90
+<< 0x056b82 90 90 90 90 90
+
+>> 0x056bdb 57 8B 31 56 8B 79 04
+<< 0x056bdb E9 30 F9 0B 00 90 90
+
+>> 0x056d46 8B 0D 24 29 5A 00
+<< 0x056d46 E8 55 F7 0B 00 90
+
+>> 0x056dcb 8B 44 24 04 8B 51 14 8B 00 89 02
+<< 0x056dcb E8 00 F7 0B 00 90 90 90 90 90 90
+
+>> 0x057556 E6 E1 FF FF E8 21 54
+<< 0x057556 26 54 FF FF E8 E1 E1
+
+>> 0x057615 C7 05 1C 29 5A 00 01 00 00 00
+<< 0x057615 E8 66 EE 0B 00 90 90 90 90 90
+
+>> 0x057ad6 31 FF 89 3D 1C 29 5A 00
+<< 0x057ad6 E8 35 E8 0B 00 90 90 90
+
+>> 0x0fcd23 BA 01 00 00 00 8B 84 24 E0 02 00 00 E8 90 9D F5
+>> 0x0fcd33 FF
+<< 0x0fcd23 E8 58 98 01 00 90 90 90 90 90 90 90 90 90 90 90
+<< 0x0fcd33 90
+
+>> 0x109b09 66 89 04 24 8B 04 24
+<< 0x109b09 E9 92 C7 00 00 90 90
+
+>> 0x116260 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116270 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116280 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116290 00 00 00 00
+<< 0x116260 60 31 F6 3B 35 E4 96 68 00 73 24 8B 04 F5 F4 96
+<< 0x116270 68 00 50 8B 04 F5 F0 96 68 00 50 68 00 04 00 00
+<< 0x116280 FF 35 4C 07 5A 00 FF 15 2C 46 57 00 46 EB D4 C7
+<< 0x116290 05 E4 96 68
+
+>> 0x116299 00 00
+<< 0x116299 61 C3
+
+>> 0x1162a0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1162b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1162c0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1162d0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1162e0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1162f0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116300 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116310 00 00 00 00 00
+<< 0x1162a0 66 89 04 24 8B 04 24 81 F9 00 04 00 00 75 3F 83
+<< 0x1162b0 3D 1C 29 5A 00 01 74 15 83 3D E4 96 68 00 00 74
+<< 0x1162c0 2D E8 2D 00 00 00 E8 95 FF FF FF EB 1C 66 83 F8
+<< 0x1162d0 68 74 08 66 83 F8 74 74 02 EB 13 83 3D E4 96 68
+<< 0x1162e0 00 17 73 0A E8 0A 00 00 00 E9 74 38 FF FF E9 1D
+<< 0x1162f0 38 FF FF 50 A1 E4 96 68 00 89 34 C5 F0 96 68 00
+<< 0x116300 89 3C C5 F4 96 68 00 FF 05 E4 96 68 00 58 C3 00
+<< 0x116310 C7 05 1C 29 5A
+
+>> 0x11631a 00 00 00 00 00 00 00 00
+<< 0x11631a E8 41 FF FF FF 31 FF C3
+
+>> 0x116330 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116340 00 00 00 00 00 00 00 00 00 00
+<< 0x116330 89 54 24 34 89 44 24 28 60 68 00 86 68 00 FF 15
+<< 0x116340 48 45 57 00 61 C7 05 E0 96 68
+
+>> 0x11634f 00 00 00 00
+<< 0x11634f E9 F6 70 03
+
+>> 0x116360 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116370 00 00 00 00 00 00
+<< 0x116360 60 68 00 86 68 00 FF 15 AC 44 57 00 61 68 00 86
+<< 0x116370 68 00 E9 82 72 03
+
+>> 0x116380 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116390 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1163a0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1163b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1163c0 00 00 00 00 00 00 00 00 00 00 00 00
+<< 0x116380 83 3D E0 96 68 00 00 75 3D 56 BE FA 00 00 00 50
+<< 0x116390 52 53 51 E8 78 4C 03 00 83 F8 01 74 11 4E 74 18
+<< 0x1163a0 6A 14 FF 15 94 45 57 00 59 5B 5A 58 EB E1 83 C4
+<< 0x1163b0 10 5E B8 01 00 00 00 C3 83 C4 10 5E C7 05 E0 96
+<< 0x1163c0 68 00 01 00 00 00 B8 01 00 00 00 C3
+
+>> 0x1163d0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1163e0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1163f0 00 00 00 00 00 00 00 00 00 00 00 00
+<< 0x1163d0 60 A1 30 07 5A 00 85 C0 74 20 83 3D 7C D9 5F 00
+<< 0x1163e0 00 74 17 6A 01 68 E8 96 68 00 6A 00 6A 00 FF 35
+<< 0x1163f0 C4 D8 5F 00 50 8B 08 FF 51 68 61 C3
+
+>> 0x116400 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116410 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116420 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116430 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116440 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116450 00 00
+<< 0x116400 83 3D 48 07 5A 00 01 75 22 60 FF 15 FC 43 57 00
+<< 0x116410 89 C2 2B 15 EC 96 68 00 81 FA 10 27 00 00 72 0A
+<< 0x116420 A3 EC 96 68 00 E8 A6 FF FF FF 61 68 E8 03 00 00
+<< 0x116430 57 FF 15 C0 45 57 00 3D 02 01 00 00 75 0B 83 3D
+<< 0x116440 48 07 5A 00 01 75 07 EB B7 E9 D6 6A 03 00 E9 DA
+<< 0x116450 6A 03
+
+>> 0x116460 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116470 00 00 00 00 00 00 00 00
+<< 0x116460 FF 05 B0 97 68 00 FF 74 24 04 FF 15 EC 45 57 00
+<< 0x116470 FF 0D B0 97 68 00 C2 04
+
+>> 0x116480 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116490 00 00 00 00 00 00 00
+<< 0x116480 C7 05 1C 29 5A 00 01 00 00 00 50 A1 B0 97 68 00
+<< 0x116490 A3 B4 97 68 00 58 C3
+
+>> 0x1164a0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1164b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1164c0 00
+<< 0x1164a0 8B 0D 24 29 5A 00 83 3D 1C 29 5A 00 01 75 11 50
+<< 0x1164b0 A1 B0 97 68 00 3B 05 B4 97 68 00 58 75 02 31 C9
+<< 0x1164c0 C3
+
+>> 0x1164d0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1164e0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1164f0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116500 00 00 00 00 00 00 00 00
+<< 0x1164d0 8B 44 24 08 8B 51 14 50 8B 00 89 02 58 83 78 10
+<< 0x1164e0 00 75 21 8B 50 14 85 D2 74 1A 53 8B 1A 85 DB 74
+<< 0x1164f0 05 83 FB 02 75 0D 0F B7 5A 04 81 CB 00 00 4B 4B
+<< 0x116500 89 59 0C 5B 8B 51 14 C3
+
+>> 0x116510 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116520 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116530 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+<< 0x116510 8B 41 0C 89 C2 81 E2 00 00 FF FF 81 FA 00 00 4B
+<< 0x116520 4B 75 4A 25 FF FF 00 00 66 3B 05 BC 36 5A 00 73
+<< 0x116530 3C 69 C0 28 03 00 00 03 05 C8 36 5A 00 C7 80 80
+
+>> 0x116547 00 00 00
+<< 0x116547 C7 80 84
+
+>> 0x116551 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116561 00 00 00 00 00 00 00
+<< 0x116551 C7 80 88 00 00 00 FF 7F FF 7F 66 C7 80 90 00 00
+<< 0x116561 00 FF FF 66 C7 80 98
+
+>> 0x11656d 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+<< 0x11656d 31 C0 57 8B 31 56 8B 79 04 E9 67 06 F4 FF
+
+>> 0x116580 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116590 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1165a0 00 00
+<< 0x116580 8B 84 24 E4 02 00 00 83 3D 24 29 5A 00 00 74 07
+<< 0x116590 50 E8 AA 07 F4 FF 58 BA 01 00 00 00 E8 23 05 F4
+<< 0x1165a0 FF C3
+
+>> 0x14cf13 6A FF 57 2E FF 15 C0 45 57 00 3D 02 01 00 00 74
+>> 0x14cf23 09
+<< 0x14cf13 E9 E8 94 FC FF 90 90 90 90 90 90 90 90 90 90 90
+<< 0x14cf23 90
+
+>> 0x14d442 89 54 24 34 89 44 24 28
+<< 0x14d442 E9 E9 8E FC FF 90 90 90
+
+>> 0x14d573 99 DA FF
+<< 0x14d573 09 8E FC
+
+>> 0x14d5f4 68 00 86 68 00
+<< 0x14d5f4 E9 67 8D FC FF

@@ -1,0 +1,103 @@
+#!/bin/bash
+# usage: resume5.sh <savedir> [exe]   — restart all 5 instances from a saved checkpoint
+# (<savedir>/auto_<X>.sav for X in A..E, written by savepoint.sh) instead of starting at turn 0.
+# Host A: CONTINUE -> "continue as multiplayer" YES -> TCP/IP -> connect; B..E join and pick their race.
+# The host only presses ACCEPT once all four other players are listed in its lobby ; a join that did not arrive is repeated. After loading, all five games must
+# show the full player mask 0x1f, otherwise everything is restarted (up to 3 attempts).
+cd /e/dev/botf/work
+H="python -I tools/harness.py"
+SAV=$1; EXE=${2:-trek_t_bug.exe}
+for x in A B C D E; do [ -s "$SAV/auto_$x.sav" ] || { echo "missing $SAV/auto_$x.sav"; exit 1; }; done
+
+lobby_full() {   # all five name rows of the host lobby are filled
+  python -I - <<'EOF2'
+import sys; sys.path.insert(0, 'tools')
+import harness as H
+from PIL import Image
+st = H.load_state(); H.capture(H.main_window(st['A']), 'shots/lobby_now.png')
+img = Image.open('shots/lobby_now.png').convert('RGB')
+rows = sum(1 for y in (157, 180, 203, 226, 249) if sum(1 for x in range(375, 450) if sum(img.getpixel((x, y))) > 300) >= 5)
+sys.exit(0 if rows == 5 else 1)
+EOF2
+}
+
+joined() {    # is player $1's name already in the host lobby? (name rows 157/180/203/226/249)
+  python -I - "$1" <<'EOF'
+import sys; sys.path.insert(0, 'tools')
+import harness as H
+from PIL import Image
+st = H.load_state(); H.capture(H.main_window(st['A']), 'shots/lobby_now.png')
+img = Image.open('shots/lobby_now.png').convert('RGB')
+rows = sum(1 for y in (180, 203, 226, 249) if sum(1 for x in range(375, 450) if sum(img.getpixel((x, y))) > 300) >= 5)
+need = {'B': 1, 'C': 2, 'D': 3, 'E': 4}[sys.argv[1]]
+sys.exit(0 if rows >= need else 1)
+EOF
+}
+
+join() {
+  x=$1; nm=$2; ry=$3
+  for try in 1 2 3; do
+    $H click $x 705 215; sleep 3
+    $H click $x 160 407; sleep 0.5; for i in 1 2 3 4 5 6 7 8; do $H key $x 08; done; $H text $x $nm; sleep 0.3
+    $H click $x 80 262; sleep 2
+    $H click $x 250 215; sleep 3
+    $H click $x 405 270; sleep 1
+    $H click $x 480 309; sleep 0.5; for i in 1 2 3 4 5 6 7 8 9 10; do $H key $x 08; done; $H text $x 127.0.0.1; sleep 0.5
+    $H click $x 515 505; sleep 6
+    $H click $x 400 244; sleep 1
+    $H click $x 545 520; sleep 6
+    $H click $x 230 $ry; sleep 2
+    joined $x && return 0
+    echo "join of $x did not arrive (try $try)"
+    $H key $x 1b; sleep 1; $H key $x 1b; sleep 1; $H click $x 80 315; sleep 2   # back out
+  done
+  return 1
+}
+
+attempt() {
+  for x in A B C D E; do $H kill $x >/dev/null 2>&1 || true; done
+  sleep 2
+  rm -f ../test/?/dxwnd.lockfile.tmp
+  tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath 'E:\dev\botf\work\dplay\dplaysvr.exe' -WorkingDirectory 'E:\dev\botf\work\dplay' -WindowStyle Hidden"
+  for x in A B C D E; do
+    cp "$EXE" ../test/$x/trek.exe; : > ../test/$x/Crash.log
+    cp "$SAV/auto_$x.sav" ../test/$x/auto.sav
+  done
+  for x in A B C D E; do
+    $H launch $x 'E:\dev\botf\test\'$x; sleep 6
+    if ! $H wins $x | head -1 | grep -q "800, 600)"; then
+      echo "instance $x is not windowed 800x600, aborting"
+      for y in A B C D E; do $H kill $y >/dev/null 2>&1 || true; done; exit 1
+    fi
+  done
+  sleep 8
+  $H click A 705 122; sleep 4          # CONTINUE
+  $H click A 290 234; sleep 4          # continue as multiplayer: YES
+  $H click A 160 360; sleep 0.5; $H text A testgame; sleep 0.3
+  $H click A 160 407; sleep 0.5; $H text A Alpha; sleep 0.3
+  $H click A 405 270; sleep 1
+  $H click A 515 505; sleep 6          # connect -> empire selection
+  join B Beta 374 && join C Gamma 238 && join D Delta 304 && join E Epsilon 443 || return 1
+  $H click A 230 166; sleep 2
+  lobby_full || { echo "host lobby not complete"; return 1; }
+  $H click A 545 520
+  python -I - <<'EOF'
+import sys, struct, time; sys.path.insert(0, 'tools')
+import harness as H
+st = H.load_state(); t0 = time.time(); r = {}
+while time.time() - t0 < 300:
+    r = {k: (struct.unpack('<I', H.readmem(st[k], 0x5a2918, 4))[0], H.readmem(st[k], 0x5a2b2a, 1)[0], H.readmem(st[k], 0x5a2b28, 1)[0])
+         for k in 'ABCDE' if H.pid_alive(st[k])}
+    if len(r) == 5 and len(set(v[0] for v in r.values())) == 1 and all(v[1] != 255 and v[2] == 0x1f for v in r.values()):
+        print('loaded after %ds:' % (time.time() - t0), r); sys.exit(0)
+    time.sleep(3)
+print('NOT loaded completely:', r); sys.exit(1)
+EOF
+}
+
+for n in 1 2 3; do
+  if attempt; then for x in A B C D E; do $H place $x; done; exit 0; fi
+  echo "attempt $n failed, restarting"
+done
+for x in A B C D E; do $H kill $x >/dev/null 2>&1 || true; done
+exit 1
