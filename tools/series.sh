@@ -1,6 +1,8 @@
 #!/bin/bash
 # usage: series.sh <turns> <seed> exe...   — per exe: new game + chaos (heartbeat criterion), logs in turnlog/series_<exe>.log
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 N=$1; SEED=$2; shift 2
 for EXE in "$@"; do
   L=turnlog/series_${EXE%.exe}_$SEED.log

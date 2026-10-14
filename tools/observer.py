@@ -83,7 +83,7 @@ try:
                 sd = os.path.join(HERE, '..', 'saves', '%s_t%d' % (os.path.basename(os.path.normpath(out)), t))
                 os.makedirs(sd, exist_ok=True)
                 for x in live:
-                    shutil.copyfile(os.path.join(HERE, '..', '..', 'test', x, 'auto.sav'), os.path.join(sd, 'auto_%s.sav' % x))
+                    shutil.copyfile(os.path.join(os.environ.get('BOTF_TEST', os.path.join(HERE, '..', 'test')), x, 'auto.sav'), os.path.join(sd, 'auto_%s.sav' % x))
                 log('checkpoint ' + os.path.normpath(sd))
             log('turn %d | state diffs vs %s: %s | orders %d' % (t, live[0], ', '.join(line), na))
             if hb:

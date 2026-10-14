@@ -5,7 +5,9 @@
 # Host A: CONTINUE -> "continue as multiplayer" YES -> TCP/IP -> connect; B..E join and pick their race.
 # The host only presses ACCEPT once all four other players are listed in its lobby ; a join that did not arrive is repeated. After loading, all five games must
 # show the full player mask 0x1f, otherwise everything is restarted (up to 3 attempts).
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 SAV=$1; EXE=$2; HOST=$3; shift 3; OTHERS="$*"; ALL="$HOST $OTHERS"; NP=$(echo $ALL | wc -w)
 declare -A RACEY=([A]=166 [B]=374 [C]=238 [D]=304 [E]=443) NAME=([A]=Alpha [B]=Beta [C]=Gamma [D]=Delta [E]=Epsilon)
@@ -58,14 +60,14 @@ join() {
 attempt() {
   for x in A B C D E; do $H kill $x >/dev/null 2>&1 || true; done
   sleep 2
-  rm -f ../test/?/dxwnd.lockfile.tmp
-  tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath 'E:\dev\botf\work\dplay\dplaysvr.exe' -WorkingDirectory 'E:\dev\botf\work\dplay' -WindowStyle Hidden"
+  rm -f "$TEST"/?/dxwnd.lockfile.tmp
+  tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath '$(cygpath -w "$DPLAY/dplaysvr.exe")' -WorkingDirectory '$(cygpath -w "$DPLAY")' -WindowStyle Hidden"
   for x in $ALL; do
-    cp "$EXE" ../test/$x/trek.exe; : > ../test/$x/Crash.log
-    cp "$SAV/auto_$x.sav" ../test/$x/auto.sav
+    cp "$EXE" $TEST/$x/trek.exe; : > $TEST/$x/Crash.log
+    cp "$SAV/auto_$x.sav" $TEST/$x/auto.sav
   done
   for x in $ALL; do
-    $H launch $x 'E:\dev\botf\test\'$x; sleep 6
+    $H launch $x "$(cygpath -w "$TEST/$x")"; sleep 6
     if ! $H wins $x | head -1 | grep -q "800, 600)"; then
       echo "instance $x is not windowed 800x600, aborting"
       for y in A B C D E; do $H kill $y >/dev/null 2>&1 || true; done; exit 1

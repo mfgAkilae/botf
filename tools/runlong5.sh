@@ -3,7 +3,9 @@
 # Restart the 5-human game from a checkpoint (default saves/five_1201_t103) with <exe>, then start the
 # observer and one independent player agent per window. Stops on heartbeat mismatch, dead game, lag,
 # elimination, stuck, or after <turns>.
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 EXE=$1; D=$2; SEED=$3; N=$4; SAV=${5:-saves/five_1201_t103}
 mkdir -p $D
 bash tools/resume5.sh $SAV $EXE | tail -1 || exit 1

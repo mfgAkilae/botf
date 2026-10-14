@@ -1,6 +1,8 @@
 #!/bin/bash
 # usage: longseries.sh <exe> <runs> <turns> <seed0>
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 EXE=$1; RUNS=$2; N=$3; S0=$4
 for r in $(seq 1 $RUNS); do
   SEED=$((S0 + r)); OUT=turnlog/long_${EXE%.exe}_$SEED

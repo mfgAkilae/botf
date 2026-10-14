@@ -1,6 +1,8 @@
 #!/bin/bash
 # usage: probe3.sh <label> <nturns> — play turns with the send tracer attached to A (timing perturbation)
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 echo "== $1"
 for i in $(seq 1 $2); do
   PID=$(python -I -c "import sys;sys.path.insert(0,'tools');import harness as H;print(H.load_state()['A'])")

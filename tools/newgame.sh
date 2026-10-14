@@ -1,19 +1,21 @@
 #!/bin/bash
 # usage: newgame.sh <exe>   — installs exe into test/A and test/B, starts a 2-player MP game (A host Cardassian, B Klingon)
 set -e
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 EXE=${1:-trek_test.exe}
 EXEB=${2:-$EXE}
 $H kill A >/dev/null 2>&1 || true
 $H kill B >/dev/null 2>&1 || true
 sleep 1
-cp "$EXE" ../test/A/trek.exe
-cp "$EXEB" ../test/B/trek.exe
-: > ../test/A/Crash.log; : > ../test/B/Crash.log
-$H launch A 'E:\dev\botf\test\A'
+cp "$EXE" $TEST/A/trek.exe
+cp "$EXEB" $TEST/B/trek.exe
+: > $TEST/A/Crash.log; : > $TEST/B/Crash.log
+$H launch A "$(cygpath -w "$TEST/A")"
 sleep 3
-$H launch B 'E:\dev\botf\test\B'
+$H launch B "$(cygpath -w "$TEST/B")"
 sleep 14
 bash tools/mp_setup.sh >/dev/null
 $H click B 515 505; sleep 6          # connect

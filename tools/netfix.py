@@ -428,21 +428,20 @@ def apply(p):
     p.patch(0x4577db, '578b31568b7904', jmp_rel(0x4577db, nfreset) + bytes([0x90]) * 2)
 
     # ---- Fix N: send a kill request when a bought build is deleted from the queue -------------------
+    # Only the 5-byte call at 0x4fd92f is redirected (mods such as ECM/PLUS changed the bytes before it).
+    # On entry EAX = buy-order search pattern, EDX = 1 (local kill of all matches).
     buydel = put('buydel', f'''
-        mov eax, dword ptr [esp+0x2e4]
+        push eax
+        push edx
         cmp dword ptr [0x5a2924], 0
         je local
-        push eax
         call 0x457940
-        pop eax
     local:
-        mov edx, 1
-        call 0x4576c4
-        ret
+        pop edx
+        pop eax
+        jmp 0x4576c4
     ''')
-    # 0x4fd923: mov edx,1 / mov eax,[esp+0x2e0] / call 0x4576c4  (17 bytes)
-    p.patch(0x4fd923, 'ba01000000' '8b8424e0020000' + call_rel(0x4fd92f, 0x4576c4).hex(),
-            call_rel(0x4fd923, buydel) + bytes([0x90]) * 12)
+    p.patch(0x4fd92f, call_rel(0x4fd92f, 0x4576c4), call_rel(0x4fd92f, buydel))
 
     out["code_end"] = code
     return out

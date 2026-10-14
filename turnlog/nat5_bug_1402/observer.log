@@ -1,0 +1,1019 @@
+05:01:19 observer start turn 200 mask 0x1f instances ['A', 'B', 'C', 'D', 'E']
+05:01:54     AB: sys[43]: 0x80-0x80 a=00 b=03, 0x90-0x90 a=00 b=50
+05:01:54     AB: sys[74]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=72 b=00
+05:01:54     AB: sys[80]: 0x80-0x80 a=00 b=05
+05:01:54     AC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:01:54     AC: sys[74]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=72 b=00
+05:01:54     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:01:54     AD: sys[74]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=72 b=00
+05:01:54     AD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:01:54     AE: sys[74]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=72 b=00
+05:01:54 turn 201 | state diffs vs A: B 3, C 3, D 2, E 1 | orders 12
+05:02:28     AB: sys[43]: 0x80-0x80 a=00 b=05
+05:02:28     AB: sys[80]: 0x80-0x80 a=00 b=05
+05:02:28     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:02:28     AD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:02:28     AE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:02:28 turn 202 | state diffs vs A: B 2, C 1, D 1, E 1 | orders 10
+05:03:01     AB: sys[80]: 0x80-0x80 a=00 b=05
+05:03:01     AC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:03:01     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:03:01     AD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:03:01     AE: sys[82]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:03:01 turn 203 | state diffs vs A: B 1, C 2, D 1, E 1 | orders 9
+05:03:45     AB: sys[43]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=0e01
+05:03:45     AB: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:03:45     AB: sys[80]: 0x80-0x80 a=00 b=05
+05:03:45     AC: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:03:45     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:03:45     AD: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:03:45     AD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:03:45     AE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:03:45     AE: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:03:45     AE: sys[83]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:03:45 turn 204 | state diffs vs A: B 3, C 2, D 2, E 3 | orders 9
+05:04:19     AB: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:19     AB: sys[80]: 0x80-0x80 a=00 b=05
+05:04:19     AC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=08
+05:04:19     AC: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:19     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:04:19     AD: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:19     AD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=bb
+05:04:19     AE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:04:19     AE: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:19 turn 205 | state diffs vs A: B 2, C 3, D 2, E 2 | orders 9
+05:04:52     AB: sys[43]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=0501
+05:04:52     AB: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:52     AB: sys[80]: 0x80-0x80 a=00 b=05
+05:04:52     AC: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:52     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:04:52     AD: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:52     AE: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:04:52 turn 206 | state diffs vs A: B 3, C 2, D 1, E 1 | orders 10
+05:05:29     AB: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:05:29     AB: sys[80]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:05:29     AC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=8d
+05:05:29     AC: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:05:29     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:05:29     AD: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:05:29     AE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:05:29     AE: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:05:29     AE: sys[83]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:05:29 turn 207 | state diffs vs A: B 2, C 3, D 1, E 3 | orders 9
+05:06:12     AB: sys[43]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:06:12     AB: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:06:12     AB: sys[80]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:06:12     AC: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:06:12     AC: sys[76]: 0x80-0x80 a=00 b=05
+05:06:12     AD: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:06:12     AE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:06:12     AE: sys[74]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:06:12 turn 208 | state diffs vs A: B 3, C 2, D 1, E 2 | orders 10
+05:06:47 PLAYER ELIMINATED: mask 0x1f -> 0x1e at turns {'A': 209, 'B': 209, 'C': 209, 'D': 209, 'E': 209}, instances ['A']; watching 120 s for crashes, then continuing
+05:06:47     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:06:47     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=08
+05:06:47     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:06:47     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:06:47     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=03
+05:06:47     BD: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:06:47     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:06:47     BE: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:06:47 turn 209 | state diffs vs B: C 4, D 3, E 2 | orders 8
+05:07:28     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:07:28     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:07:28     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:07:28     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:07:28     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:07:28     BE: sys[83]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:07:28 turn 210 | state diffs vs B: C 2, D 1, E 3 | orders 8
+05:08:04     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:08:04     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:08:04     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:08:04     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:08:04     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:08:04     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:08:04     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:08:04 turn 211 | state diffs vs B: C 4, D 2, E 2 | orders 9
+05:08:40     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:08:40     BC: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:08:40     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=d7
+05:08:40     BD: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:08:40     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:08:40     BE: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:08:40 turn 212 | state diffs vs B: C 2, D 2, E 2 | orders 8
+05:08:47 A (empire 0) removed after its elimination; remaining ['B', 'C', 'D', 'E']
+05:09:10     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:09:10     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:09:10     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:09:10     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:09:10     BD: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:09:10     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:09:10     BE: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:09:10     BE: sys[82]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:09:10 turn 213 | state diffs vs B: C 4, D 2, E 4 | orders 7
+05:09:50     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:09:50     BC: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:09:50     BD: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:09:50     BE: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:09:50 turn 214 | state diffs vs B: C 2, D 1, E 1 | orders 11
+05:10:17     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:10:17     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=8d
+05:10:17     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:10:17     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:10:17     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=d7
+05:10:17     BD: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:10:17     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:10:17     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:10:17     BE: sys[80]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:10:17 turn 215 | state diffs vs B: C 4, D 3, E 3 | orders 8
+05:10:52     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:10:52     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:10:52     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=bb
+05:10:52     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:10:52     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:10:52     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:10:52     BE: sys[83]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:10:52 turn 216 | state diffs vs B: C 2, D 2, E 3 | orders 7
+05:11:34     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:11:34     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:11:34     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:11:34     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:11:34     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:11:34     BD: sys[81]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:11:34     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:11:34     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:11:34     BE: sys[81]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:11:34 turn 217 | state diffs vs B: C 5, D 3, E 3 | orders 9
+05:12:09     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:12:09     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:12:09     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:12:09     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:12:09     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:12:09 turn 218 | state diffs vs B: C 2, D 1, E 2 | orders 9
+05:12:37     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:12:37     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:12:37     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:12:37     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:12:37     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:12:37     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:12:37     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:12:37     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:12:37     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:12:37 turn 219 | state diffs vs B: C 4, D 3, E 3 | orders 8
+05:13:14     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+05:13:14     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:13:14     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:13:14     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:13:14     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:13:14     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x8b a=ff7fff7f b=33010000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=530a
+05:13:14     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:13:14 checkpoint E:\dev\botf\work\saves\nat5_bug_1402_t220
+05:13:14 turn 220 | state diffs vs B: C 3, D 2, E 2 | orders 8
+05:13:44     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:13:44     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:13:44     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:13:44     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:13:44     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:13:44     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:13:44     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:13:44     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:13:44     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:13:44 turn 221 | state diffs vs B: C 3, D 3, E 3 | orders 10
+05:14:09     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:14:09     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:14:09     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:14:09     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=ce
+05:14:09     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:14:09     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+05:14:09     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:14:09     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:14:09 turn 222 | state diffs vs B: C 3, D 2, E 3 | orders 6
+05:14:45     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:14:45     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:14:45     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:14:45     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:14:45     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:14:45     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:14:45     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:14:45     BE: sys[82]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:14:45 turn 223 | state diffs vs B: C 3, D 2, E 3 | orders 10
+05:15:21     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+05:15:21     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:15:21     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:15:21     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:15:21     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:15:21     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:15:21     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:15:21 turn 224 | state diffs vs B: C 3, D 2, E 2 | orders 8
+05:15:57     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:15:57     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:15:57     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:15:57     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:15:57     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:15:57     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:15:57     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:15:57     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:15:57 turn 225 | state diffs vs B: C 4, D 3, E 2 | orders 9
+05:16:28     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:16:28     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:16:28     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:16:28     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:16:28     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:16:28     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:16:28     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:16:28 turn 226 | state diffs vs B: C 3, D 2, E 2 | orders 8
+05:17:05     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:17:05     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:17:05     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:17:05     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:17:05     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=c5
+05:17:05     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:17:05     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:17:05     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:17:05     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:17:05 turn 227 | state diffs vs B: C 4, D 3, E 4 | orders 6
+05:17:41     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:17:41     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:17:41     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:17:41     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:17:41     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:17:41     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:17:41     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:17:41 turn 228 | state diffs vs B: C 3, D 1, E 3 | orders 8
+05:18:12     BC: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:18:12     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:18:12     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:18:12     BD: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:18:12     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:18:12     BE: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:18:12     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:18:12     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:18:12 turn 229 | state diffs vs B: C 4, D 2, E 4 | orders 8
+05:18:44     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:18:44     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:18:44     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:18:44     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:18:44     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:18:44     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:18:44     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:18:44     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:18:44     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:18:44 turn 230 | state diffs vs B: C 4, D 3, E 4 | orders 8
+05:19:22     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:19:22     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:19:22     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:19:22     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:19:22     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=bb
+05:19:22     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:19:22     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:19:22     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:19:22     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:19:22 turn 231 | state diffs vs B: C 4, D 3, E 3 | orders 8
+05:19:55     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:19:55     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:19:55     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:19:55     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:19:55     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=3f0a, 0x88-0x8b a=ff7fff7f b=21010000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=3f0a
+05:19:55     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:19:55     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:19:55 turn 232 | state diffs vs B: C 3, D 1, E 3 | orders 8
+05:20:25     BC: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:20:25     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:20:25     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:20:25     BD: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:20:25     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:20:25     BE: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:20:25     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=3f0a, 0x88-0x8b a=ff7fff7f b=21010000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=3f0a
+05:20:25     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:20:25 turn 233 | state diffs vs B: C 4, D 2, E 5 | orders 7
+05:21:03     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:21:03     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:21:03     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:21:03     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:21:03     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:21:03     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:21:03     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=3f0a, 0x88-0x8b a=ff7fff7f b=21010000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=3f0a
+05:21:03     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:21:03 turn 234 | state diffs vs B: C 4, D 2, E 4 | orders 8
+05:21:37     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:21:37     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:21:37     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:21:37     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=c5
+05:21:37     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:21:37     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:21:37     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:21:37     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:21:37 turn 235 | state diffs vs B: C 3, D 2, E 3 | orders 8
+05:22:13     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:22:13     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:22:13     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:22:13     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:22:13     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:22:13     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:22:13     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:22:13     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:22:13 turn 236 | state diffs vs B: C 4, D 2, E 4 | orders 8
+05:22:42     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:22:42     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:22:42     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:22:42     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:22:42     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:22:42     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:22:42 turn 237 | state diffs vs B: C 3, D 1, E 2 | orders 9
+05:23:21     BC: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:23:21     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:23:21     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:23:21     BD: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:23:21     BD: sys[78]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=bb
+05:23:21     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:23:21     BE: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:23:21     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+05:23:21     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:23:21 turn 238 | state diffs vs B: C 4, D 3, E 4 | orders 7
+05:23:58     BC: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:23:58     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:23:58     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:23:58     BD: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:23:58     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:23:58     BE: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:23:58     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:23:58     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:23:58 turn 239 | state diffs vs B: C 4, D 2, E 3 | orders 9
+05:24:26     BC: sys[43]: 0x88-0x8b a=00000000 b=ff7fff7f, 0x9c-0x9f a=00000000 b=ff7fff7f
+05:24:26     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:24:26     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:24:26     BD: sys[43]: 0x88-0x8b a=00000000 b=ff7fff7f, 0x9c-0x9f a=00000000 b=ff7fff7f
+05:24:26     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:24:26     BE: sys[43]: 0x88-0x8b a=00000000 b=ff7fff7f, 0x9c-0x9f a=00000000 b=ff7fff7f
+05:24:26     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:24:26     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:24:26 checkpoint E:\dev\botf\work\saves\nat5_bug_1402_t240
+05:24:26 turn 240 | state diffs vs B: C 4, D 2, E 4 | orders 8
+05:24:58     BC: sys[43]: 0x88-0x8b a=00000000 b=ff7fff7f, 0x9c-0x9f a=00000000 b=ff7fff7f
+05:24:58     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:24:58     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:24:58     BD: sys[43]: 0x88-0x8b a=00000000 b=ff7fff7f, 0x9c-0x9f a=00000000 b=ff7fff7f
+05:24:58     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:24:58     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:24:58     BE: sys[43]: 0x88-0x8b a=00000000 b=ff7fff7f, 0x9c-0x9f a=00000000 b=ff7fff7f
+05:24:58     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:24:58     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:24:58 turn 241 | state diffs vs B: C 4, D 3, E 4 | orders 8
+05:25:27     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:25:27     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:25:27     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:25:27     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:25:27     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:25:27     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:25:27     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:25:27     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+05:25:27     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:25:27 turn 242 | state diffs vs B: C 3, D 3, E 4 | orders 9
+05:25:56     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:25:56     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:25:56     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:25:56     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:25:56     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:25:56     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:25:56     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:25:56     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:25:56 turn 243 | state diffs vs B: C 3, D 2, E 3 | orders 8
+05:26:32     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:26:32     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:26:32     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:26:32     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:26:32     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:26:32     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:26:32     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:26:32     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:26:32     BE: sys[82]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:26:32 turn 244 | state diffs vs B: C 4, D 3, E 4 | orders 8
+05:27:03     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:27:03     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:27:03     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:27:03     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:27:03     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:27:03     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:27:03     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:27:03 turn 245 | state diffs vs B: C 3, D 2, E 2 | orders 9
+05:27:34     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:27:34     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:27:34     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:27:34     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:27:34     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:27:34     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:27:34     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:27:34     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:27:34     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:27:34 turn 246 | state diffs vs B: C 4, D 3, E 4 | orders 8
+05:28:02     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:28:02     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:28:02     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:28:02     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:28:02     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:28:02     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:28:02     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:28:02 turn 247 | state diffs vs B: C 3, D 2, E 2 | orders 9
+05:28:38     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:28:38     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:28:38     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:28:38     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:28:38     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:28:38     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:28:38     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:28:38     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:28:38     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:28:38 turn 248 | state diffs vs B: C 4, D 3, E 3 | orders 9
+05:29:08     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:29:08     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:29:08     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:29:08     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:29:08     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:29:08     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:29:08     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:29:08     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:29:08 turn 249 | state diffs vs B: C 3, D 2, E 3 | orders 8
+05:29:36     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:29:36     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:29:36     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:29:36     BD: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:29:36     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:29:36     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:29:36     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:29:36     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:29:36     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:29:36 turn 250 | state diffs vs B: C 4, D 3, E 4 | orders 8
+05:30:09     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:30:09     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:30:09     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:30:09     BD: sys[78]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:30:09     BD: sys[80]: 0x80-0x80 a=05 b=00
+05:30:09     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:30:09     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:30:09     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:30:09 turn 251 | state diffs vs B: C 3, D 2, E 3 | orders 8
+05:30:41 PLAYER ELIMINATED: mask 0x1e -> 0x1a at turns {'B': 252, 'C': 252, 'D': 252, 'E': 252}, instances ['D']; watching 120 s for crashes, then continuing
+05:30:41     BC: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=50 b=00
+05:30:41     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:30:41     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:30:41     BE: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=50 b=00
+05:30:41     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:30:41     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:30:41 turn 252 | state diffs vs B: C 4, E 5 | orders 6
+05:31:13     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:31:13     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:31:13     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:31:13     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:31:13     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:31:13     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:31:13 turn 253 | state diffs vs B: C 4, E 3 | orders 8
+05:31:45     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:31:45     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:31:45     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:31:45     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:31:45     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:31:45     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:31:45 turn 254 | state diffs vs B: C 3, E 3 | orders 7
+05:32:18     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:32:18     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:32:18     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:32:18     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0501 b=0000
+05:32:18     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:32:18     BE: sys[81]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:32:18 turn 255 | state diffs vs B: C 5, E 4 | orders 8
+05:32:41 D (empire 2) removed after its elimination; remaining ['B', 'C', 'E']
+05:32:46     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:32:46     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:32:46     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:32:46     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:32:46     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:32:46 turn 256 | state diffs vs B: C 2, E 3 | orders 8
+05:33:19     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:33:19     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:33:19     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:33:19     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:33:19     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:33:19     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:33:19 turn 257 | state diffs vs B: C 4, E 3 | orders 9
+05:34:03     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:34:03     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:34:03     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:34:03     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+05:34:03     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:34:03     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:34:03 turn 258 | state diffs vs B: C 3, E 3 | orders 8
+05:34:31     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:34:31     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=8d
+05:34:31     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:34:31     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:34:31     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:34:31     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:34:31 turn 259 | state diffs vs B: C 4, E 3 | orders 8
+05:35:05     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:35:05     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:35:05     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:35:05     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:35:05     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:35:05 checkpoint E:\dev\botf\work\saves\nat5_bug_1402_t260
+05:35:05 turn 260 | state diffs vs B: C 2, E 3 | orders 8
+05:35:39     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:35:39     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:35:39     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:35:39     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=e9 b=00
+05:35:39     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:35:39     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:35:39 turn 261 | state diffs vs B: C 4, E 3 | orders 9
+05:36:12     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=8d
+05:36:12     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:36:12     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:36:12     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:36:12     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:36:12     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:36:12 turn 262 | state diffs vs B: C 3, E 3 | orders 7
+05:36:48     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:36:48     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:36:48     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:36:48     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:36:48     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:36:48     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:36:48 turn 263 | state diffs vs B: C 3, E 4 | orders 8
+05:37:17     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:37:17     BC: sys[46]: 0x80-0x80 a=00 b=03, 0x90-0x90 a=00 b=19
+05:37:17     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:37:17     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:37:17     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:37:17     BE: sys[82]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:37:17 turn 264 | state diffs vs B: C 4, E 4 | orders 6
+05:37:53     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:37:53     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:37:53     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:37:53     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:37:53     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:37:53     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:37:53 turn 265 | state diffs vs B: C 3, E 4 | orders 7
+05:38:28     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:38:28     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:38:28     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:38:28     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:38:28     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:38:28     BE: sys[83]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:38:28 turn 266 | state diffs vs B: C 4, E 3 | orders 7
+05:38:57     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:38:57     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+05:38:57     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:38:57     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:38:57     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:38:57     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:38:57 turn 267 | state diffs vs B: C 4, E 4 | orders 7
+05:39:42     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:39:42     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=8d
+05:39:42     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:39:42     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:39:42     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:39:42     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:39:42 turn 268 | state diffs vs B: C 4, E 4 | orders 6
+05:40:23     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:40:23     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:40:23     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:40:23     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:40:23     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:40:23     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:40:23 turn 269 | state diffs vs B: C 3, E 4 | orders 8
+05:41:00     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:41:00     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+05:41:00     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:41:00     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:41:00     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:41:00     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:41:00 turn 270 | state diffs vs B: C 4, E 4 | orders 6
+05:41:26     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:41:26     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:41:26     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:41:26     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:41:26     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:41:26     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:41:26 turn 271 | state diffs vs B: C 3, E 3 | orders 8
+05:41:56     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:41:56     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:41:56     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:41:56     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:41:56     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:41:56     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:41:56 turn 272 | state diffs vs B: C 4, E 4 | orders 7
+05:42:26     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:42:26     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:42:26     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:42:26     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:42:26     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:42:26     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:42:26 turn 273 | state diffs vs B: C 4, E 3 | orders 9
+05:42:51     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:42:51     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:42:51     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:42:51     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:42:51     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:42:51     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:42:51 turn 274 | state diffs vs B: C 4, E 4 | orders 8
+05:43:26     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:43:26     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:43:26     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:43:26     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:43:26     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:43:26 turn 275 | state diffs vs B: C 3, E 2 | orders 8
+05:43:55     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:43:55     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:43:55     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:43:55     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:43:55     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:43:55     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:43:55 turn 276 | state diffs vs B: C 4, E 5 | orders 6
+05:44:23     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:44:23     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:44:23     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:44:23     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:44:23     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:44:23     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:44:23 turn 277 | state diffs vs B: C 3, E 4 | orders 8
+05:45:00     BC: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=45 b=00
+05:45:00     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:45:00     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:45:00     BE: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=45 b=00
+05:45:00     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:45:00     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:45:00 turn 278 | state diffs vs B: C 3, E 4 | orders 10
+05:45:32     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:45:32     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:45:32     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:45:32     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:45:32     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:45:32     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:45:32 turn 279 | state diffs vs B: C 3, E 4 | orders 8
+05:46:05     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:46:05     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:46:05     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:46:05     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:46:05     BE: sys[83]: 0x80-0x80 a=00 b=05
+05:46:05 checkpoint E:\dev\botf\work\saves\nat5_bug_1402_t280
+05:46:05 turn 280 | state diffs vs B: C 2, E 3 | orders 16
+05:46:35     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:46:35     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:46:35     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:46:35     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:46:35     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:46:35     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:46:35 turn 281 | state diffs vs B: C 4, E 5 | orders 15
+05:47:13     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:47:13     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:47:13     BC: sys[81]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:47:13     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+05:47:13     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:47:13     BE: sys[81]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:47:13 turn 282 | state diffs vs B: C 3, E 5 | orders 9
+05:47:52     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:47:52     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:47:52     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:47:52     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:47:52     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:47:52     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:47:52 turn 283 | state diffs vs B: C 4, E 4 | orders 10
+05:48:23     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+05:48:23     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:48:23     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:48:23     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=57
+05:48:23     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:48:23     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:48:23 turn 284 | state diffs vs B: C 3, E 4 | orders 7
+05:48:56     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:48:56     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:48:56     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:48:56     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x89 a=0e01 b=0000
+05:48:56     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:48:56     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:48:56 turn 285 | state diffs vs B: C 3, E 4 | orders 10
+05:49:29     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:49:29     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:49:29     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:49:29     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:49:29     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:49:29     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:49:29 turn 286 | state diffs vs B: C 3, E 4 | orders 7
+05:50:08     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:50:08     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:50:08     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:50:08     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:50:08     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:50:08     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:50:08 turn 287 | state diffs vs B: C 3, E 5 | orders 8
+05:50:48     BC: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=50 b=00
+05:50:48     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=270c, 0x88-0x8b a=ff7fff7f b=8d000000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=270c
+05:50:48     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:50:48     BE: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=50 b=00
+05:50:48     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:50:48     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:50:48 turn 288 | state diffs vs B: C 4, E 4 | orders 8
+05:51:27     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:51:27     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=270c, 0x88-0x8b a=ff7fff7f b=8d000000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=270c
+05:51:27     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:51:27     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:51:27     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:51:27     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:51:27 turn 289 | state diffs vs B: C 4, E 5 | orders 8
+05:52:08     BC: sys[43]: 0x80-0x80 a=05 b=00
+05:52:08     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=270c, 0x88-0x8b a=ff7fff7f b=8d000000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=270c
+05:52:08     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:52:08     BE: sys[43]: 0x80-0x80 a=05 b=00
+05:52:08     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:52:08     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:52:08 turn 290 | state diffs vs B: C 4, E 5 | orders 8
+05:52:45     BC: sys[43]: 0x80-0x80 a=05 b=00
+05:52:45     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=270c, 0x88-0x8b a=ff7fff7f b=8d000000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=270c
+05:52:45     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:52:45     BE: sys[43]: 0x80-0x80 a=05 b=00
+05:52:45     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=57
+05:52:45     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:52:45 turn 291 | state diffs vs B: C 4, E 5 | orders 7
+05:53:18     BC: sys[43]: 0x80-0x80 a=05 b=00
+05:53:18     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x84-0x85 a=0000 b=270c, 0x88-0x8b a=ff7fff7f b=8d000000, 0x90-0x91 a=ffff b=0000, 0x98-0x99 a=0000 b=270c
+05:53:18     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:53:18     BE: sys[43]: 0x80-0x80 a=05 b=00
+05:53:18     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:53:18     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:53:18 turn 292 | state diffs vs B: C 4, E 4 | orders 8
+05:53:50     BC: sys[43]: 0x80-0x80 a=05 b=00
+05:53:50     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+05:53:50     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:53:50     BE: sys[43]: 0x80-0x80 a=05 b=00
+05:53:50     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+05:53:50     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:53:50 turn 293 | state diffs vs B: C 4, E 5 | orders 7
+05:54:21     BC: sys[43]: 0x80-0x80 a=05 b=00
+05:54:21     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:54:21     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:54:21     BE: sys[43]: 0x80-0x80 a=05 b=00
+05:54:21     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:54:21     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:54:21 turn 294 | state diffs vs B: C 3, E 4 | orders 9
+05:54:55     BC: sys[43]: 0x80-0x80 a=05 b=00
+05:54:55     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:54:55     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:54:55     BE: sys[43]: 0x80-0x80 a=05 b=00
+05:54:55     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:54:55     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:54:55 turn 295 | state diffs vs B: C 4, E 5 | orders 8
+05:55:31     BC: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:55:31     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a0
+05:55:31     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:55:31     BE: sys[43]: 0x8a-0x8b a=0000 b=ff7f, 0x90-0x91 a=0000 b=ffff, 0x9e-0x9f a=0000 b=ff7f, 0xa4-0xa5 a=0000 b=ffff
+05:55:31     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:55:31     BE: sys[82]: 0x80-0x80 a=00 b=05
+05:55:31 turn 296 | state diffs vs B: C 4, E 4 | orders 8
+05:56:14     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:56:14     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:56:14     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:56:14     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:56:14     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+05:56:14     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:56:14 turn 297 | state diffs vs B: C 3, E 5 | orders 8
+05:56:49     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:56:49     BC: sys[46]: 0x80-0x80 a=00 b=03, 0x90-0x90 a=00 b=1a
+05:56:49     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:56:49     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:56:49     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:56:49     BE: sys[82]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:56:49 turn 298 | state diffs vs B: C 4, E 4 | orders 8
+05:57:20     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:57:20     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:57:20     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:57:20     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=05 b=00
+05:57:20     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+05:57:20     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:57:20 turn 299 | state diffs vs B: C 3, E 5 | orders 8
+05:57:53     BC: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=50 b=00
+05:57:53     BC: sys[46]: 0x88-0x8b a=ff7fff7f b=00000000, 0x9c-0x9f a=ff7fff7f b=00000000
+05:57:53     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:57:53     BE: sys[43]: 0x80-0x80 a=03 b=00, 0x90-0x90 a=50 b=00
+05:57:53     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:57:53     BE: sys[82]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:57:53 checkpoint E:\dev\botf\work\saves\nat5_bug_1402_t300
+05:57:53 turn 300 | state diffs vs B: C 4, E 4 | orders 9
+05:58:22     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:58:22     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:58:22     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:58:22     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:58:22     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+05:58:22     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:58:22 turn 301 | state diffs vs B: C 4, E 5 | orders 8
+05:58:55     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:58:55     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=a9
+05:58:55     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:58:55     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:58:55     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:58:55     BE: sys[82]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+05:58:55 turn 302 | state diffs vs B: C 4, E 4 | orders 7
+05:59:22     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:59:22     BC: sys[76]: 0x80-0x80 a=00 b=05
+05:59:22     BC: sys[80]: 0x80-0x80 a=05 b=00
+05:59:22     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+05:59:22     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+05:59:22     BE: sys[80]: 0x80-0x80 a=05 b=00
+05:59:22 turn 303 | state diffs vs B: C 3, E 5 | orders 7
+06:00:02     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:00:02     BC: sys[46]: 0x80-0x80 a=00 b=03, 0x90-0x90 a=00 b=19
+06:00:02     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:00:02     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:00:02     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:00:02     BE: sys[82]: 0x80-0x80 a=00 b=05
+06:00:02 turn 304 | state diffs vs B: C 4, E 4 | orders 6
+06:00:33     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:00:33     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+06:00:33     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:00:33     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:00:33     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=05
+06:00:33     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:00:33 turn 305 | state diffs vs B: C 4, E 5 | orders 6
+06:01:08     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:01:08     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+06:01:08     BC: sys[76]: 0x88-0x8b a=ff7fff7f b=27000000, 0x90-0x91 a=ffff b=0000
+06:01:08     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:01:08     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:01:08     BE: sys[82]: 0x80-0x80 a=00 b=05
+06:01:08 turn 306 | state diffs vs B: C 4, E 4 | orders 7
+06:01:43     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:01:43     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+06:01:43     BC: sys[76]: 0x88-0x8b a=ff7fff7f b=27000000, 0x90-0x91 a=ffff b=0000
+06:01:43     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:01:43     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+06:01:43     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:01:43 turn 307 | state diffs vs B: C 4, E 5 | orders 6
+06:02:14     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:02:14     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+06:02:14     BC: sys[76]: 0x88-0x8b a=ff7fff7f b=27000000, 0x90-0x91 a=ffff b=0000
+06:02:14     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:02:14     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:02:14     BE: sys[82]: 0x80-0x80 a=00 b=05
+06:02:14 turn 308 | state diffs vs B: C 4, E 4 | orders 7
+06:02:42     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:02:42     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+06:02:42     BC: sys[76]: 0x88-0x8b a=ff7fff7f b=27000000, 0x90-0x91 a=ffff b=0000
+06:02:42     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x88 a=fc b=00
+06:02:42     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:02:42     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:02:42 turn 309 | state diffs vs B: C 5, E 6 | orders 8
+06:03:07     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+06:03:07     BC: sys[76]: 0x88-0x8b a=ff7fff7f b=27000000, 0x90-0x91 a=ffff b=0000
+06:03:07     BC: sys[80]: 0x80-0x80 a=05 b=00
+06:03:07     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3c01
+06:03:07     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:03:07     BE: sys[82]: 0x80-0x80 a=00 b=05
+06:03:07 turn 310 | state diffs vs B: C 3, E 4 | orders 7
+06:03:38     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:03:38     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=b2
+06:03:38     BC: sys[76]: 0x88-0x8b a=ff7fff7f b=27000000, 0x90-0x91 a=ffff b=0000
+06:03:38     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:03:38     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:03:38     BE: sys[82]: 0x80-0x80 a=00 b=05
+06:03:38 turn 311 | state diffs vs B: C 4, E 4 | orders 7
+06:04:09     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:04:09     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:04:09     BC: sys[80]: 0x80-0x80 a=05 b=00
+06:04:09     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:04:09     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+06:04:09     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:04:09 turn 312 | state diffs vs B: C 3, E 5 | orders 7
+06:04:43     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:04:43     BC: sys[46]: 0x80-0x80 a=00 b=01, 0x88-0x88 a=00 b=8d
+06:04:43     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:04:43     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:04:43     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:04:43     BE: sys[82]: 0x90-0x92 a=ffff00 b=000010, 0xa4-0xa6 a=ffff00 b=000010
+06:04:43 turn 313 | state diffs vs B: C 4, E 4 | orders 8
+06:05:15     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:05:15     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:05:15     BC: sys[80]: 0x80-0x80 a=05 b=00
+06:05:15     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:05:15     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+06:05:15     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:05:15 turn 314 | state diffs vs B: C 3, E 5 | orders 8
+06:05:47     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:05:47     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:05:47     BC: sys[80]: 0x80-0x80 a=05 b=00
+06:05:47     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:05:47     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:05:47     BE: sys[82]: 0x90-0x92 a=ffff00 b=000010, 0xa4-0xa6 a=ffff00 b=000010
+06:05:47 turn 315 | state diffs vs B: C 3, E 4 | orders 9
+06:06:15     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:06:15     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:06:15     BC: sys[80]: 0x80-0x80 a=05 b=00
+06:06:15     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:06:15     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+06:06:15     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:06:15 turn 316 | state diffs vs B: C 3, E 5 | orders 8
+06:06:50     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:06:50     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:06:50     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:06:50     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:06:50     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:06:50     BE: sys[82]: 0x90-0x92 a=ffff00 b=000010, 0xa4-0xa6 a=ffff00 b=000010
+06:06:51 turn 317 | state diffs vs B: C 4, E 4 | orders 9
+06:07:22     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:07:22     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:07:22     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:07:22     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:07:22     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=3301
+06:07:22     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:07:22 turn 318 | state diffs vs B: C 4, E 5 | orders 8
+06:07:52     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:07:52     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:07:52     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:07:52     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:07:52     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:07:52     BE: sys[82]: 0x90-0x92 a=ffff00 b=000010, 0xa4-0xa6 a=ffff00 b=000010
+06:07:52 turn 319 | state diffs vs B: C 4, E 4 | orders 9
+06:08:24     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:08:24     BC: sys[46]: 0x88-0x8b a=ff7fff7f b=00000000, 0x98-0x98 a=00 b=0f, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:08:24     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:08:24     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:08:24     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:08:24     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:08:24 checkpoint E:\dev\botf\work\saves\nat5_bug_1402_t320
+06:08:24 turn 320 | state diffs vs B: C 4, E 5 | orders 9
+06:09:01     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:09:01     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:09:01     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:09:01     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:09:01     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:09:01     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:09:01 turn 321 | state diffs vs B: C 4, E 5 | orders 9
+06:09:26     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:09:26     BC: sys[46]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:09:26     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:09:26     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:09:26     BE: sys[70]: 0x80-0x80 a=00 b=02, 0x88-0x8d a=000000000000 b=3301340192c7, 0x92-0x92 a=00 b=10
+06:09:26     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:09:26 turn 322 | state diffs vs B: C 4, E 5 | orders 8
+06:09:58     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:09:58     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:09:58     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:09:58     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:09:58     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+06:09:58     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:09:58 turn 323 | state diffs vs B: C 4, E 5 | orders 7
+06:10:31     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:10:31     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:10:31     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:10:31     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:10:31     BE: sys[70]: 0x92-0x92 a=00 b=10, 0xa6-0xa6 a=00 b=10
+06:10:31     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:10:31 turn 324 | state diffs vs B: C 4, E 5 | orders 8
+06:11:00     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:11:00     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:11:00     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:11:00     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:11:00     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2101
+06:11:00     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:11:00 turn 325 | state diffs vs B: C 4, E 5 | orders 6
+06:11:34     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:11:34     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:11:34     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:11:34     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:11:34     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:11:34     BE: sys[82]: 0x90-0x92 a=ffff00 b=000010, 0xa4-0xa6 a=ffff00 b=000010
+06:11:34 turn 326 | state diffs vs B: C 4, E 4 | orders 7
+06:12:09     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:12:09     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:12:09     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:12:09     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:12:09     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=2a01
+06:12:09     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:12:09 turn 327 | state diffs vs B: C 4, E 5 | orders 6
+06:12:43     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:12:43     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:12:43     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:12:43     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:12:43     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:12:43     BE: sys[82]: 0x90-0x92 a=ffff00 b=000010, 0xa4-0xa6 a=ffff00 b=000010
+06:12:43 turn 328 | state diffs vs B: C 4, E 4 | orders 7
+06:13:07     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:13:07     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:13:07     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:13:07     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:13:07     BE: sys[70]: 0x80-0x80 a=00 b=01, 0x88-0x89 a=0000 b=1701
+06:13:07     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:13:07 turn 329 | state diffs vs B: C 4, E 5 | orders 6
+06:13:37     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:13:37     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:13:37     BC: sys[76]: 0x80-0x80 a=00 b=05
+06:13:37     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x88-0x8b a=e9000000 b=ff7fff7f, 0x90-0x91 a=0000 b=ffff, 0x98-0x99 a=b00d b=0000
+06:13:37     BE: sys[80]: 0x80-0x80 a=05 b=00
+06:13:37     BE: sys[82]: 0x90-0x92 a=ffff00 b=000010, 0xa4-0xa6 a=ffff00 b=000010
+06:13:37 turn 330 | state diffs vs B: C 4, E 4 | orders 7
+06:14:11     BC: CRC vars differ a=ae387f1be951c75f0000 b=ae387f1be9519ddf0000
+06:14:11     BC: sys[43]: 0x80-0x80 a=01 b=00, 0x84-0x85 a=b00d b=0000, 0x88-0x88 a=fc b=00, 0x94-0x94 a=01 b=00, 0x98-0x99 a=b00d b=0000, 0x9c-0x9c a=fc b=00, 0x2c2-0x2c3 a=0000 b=6302
+06:14:11     BC: sys[46]: 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:14:11     BE: CRC vars differ a=ae387f1be951c75f0000 b=ae387f1be9519ddf0000
+06:14:11     BE: sys[43]: 0x80-0x80 a=01 b=00, 0x84-0x85 a=b00d b=0000, 0x88-0x88 a=fc b=00, 0x94-0x94 a=01 b=00, 0x98-0x99 a=b00d b=0000, 0x9c-0x9c a=fc b=00, 0x2c2-0x2c3 a=0000 b=6302
+06:14:11     BE: sys[70]: 0x8a-0x8b a=ff7f b=0000, 0x90-0x91 a=ffff b=0000, 0x9e-0x9f a=ff7f b=0000, 0xa4-0xa5 a=ffff b=0000
+06:14:11 turn 331 | state diffs vs B: C 6, E 7 | orders 8
+06:14:11     C: CRC vars differ a=ae387f1be951c75f0000 b=ae387f1be9519ddf0000
+06:14:11     E: CRC vars differ a=ae387f1be951c75f0000 b=ae387f1be9519ddf0000
+06:14:11 STOP: HB MISMATCH at turn 331

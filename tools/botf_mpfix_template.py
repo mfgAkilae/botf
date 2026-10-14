@@ -47,10 +47,17 @@ def status(d):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
-        return 2
-    path = sys.argv[1]
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if args:
+        path = args[0]
+    else:                                     # double-click: look next to the patcher / in the current folder
+        here = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
+        cands = [os.path.join(d, 'trek.exe') for d in (here, os.getcwd())]
+        path = next((c for c in cands if os.path.exists(c)), None)
+        if not path:
+            print(__doc__)
+            print('No trek.exe found next to the patcher. Put it into the game folder or drop trek.exe on it.')
+            return 2
     if os.path.isdir(path):
         path = os.path.join(path, 'trek.exe')
     backup = path + '.mpfix_backup'
@@ -85,4 +92,7 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    rc = main()
+    if getattr(sys, 'frozen', False):         # keep the console window open after a double-click
+        input(chr(10) + 'Press Enter to close.')
+    sys.exit(rc)

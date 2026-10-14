@@ -2,14 +2,19 @@
 *.exe
 *.dll
 *.sav
+!saves/nat5_bug_1402_t320/*.sav
+!saves/five_1201_t103/*.sav
 *.res
 export_en/
 ghidra_proj/
 dplay/
 tpl/
 shots/
-turnlog/
-saves/
+turnlog/*
+!turnlog/nat5_bug_1402/
+saves/*
+!saves/nat5_bug_1402_t320/
+!saves/five_1201_t103/
 # per-machine test bed state
 tools/harness_state.json
 tools/window_layout.json

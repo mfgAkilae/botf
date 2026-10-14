@@ -4,7 +4,9 @@
 # and plays one more turn. Original exe: crcSolarBld differs after that turn ("synchronization error").
 # usage: r3test.sh <exe>
 set -e
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 EXE=$1
 REC="python -I tools/turn5.py 74"

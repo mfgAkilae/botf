@@ -4,7 +4,9 @@
 # then all five play 3 turns. Original: the other machines keep the invested industry, finish the next
 # structure a turn early and the heartbeat fails (crcSolarBld) in the 2nd turn.
 # usage: mtest.sh <exe> <logdir>
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 EXE=$1; D=$2; mkdir -p $D; rm -f $D/ktrace.stop
 bash tools/resume5.sh saves/five_1201_t103 $EXE | tail -1

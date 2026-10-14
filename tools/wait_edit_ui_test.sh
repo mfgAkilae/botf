@@ -1,7 +1,9 @@
 #!/bin/bash
 # Edit-after-TURN via real UI: B ends turn, then double-clicks "Class 2 Hunting Ground" in Qo'nos; A ends last.
 # usage: wait_edit_ui_test.sh <exe> <qonos_x> <qonos_y>
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 EXE=$1; QX=$2; QY=$3
 bash tools/newgame.sh "$EXE" >/dev/null 2>&1

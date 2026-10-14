@@ -40,7 +40,7 @@ PATCH = [
     (0x057556, 'e6e1ffffe82154', '2654ffffe8e1e1'),
     (0x057615, 'c7051c295a0001000000', 'e866ee0b009090909090'),
     (0x057ad6, '31ff893d1c295a00', 'e835e80b00909090'),
-    (0x0fcd23, 'ba010000008b8424e0020000e8909df5ff', 'e858980100909090909090909090909090'),
+    (0x0fcd30, '909df5ff', '4c980100'),
     (0x109b09, '668904248b0424', 'e992c700009090'),
     (0x116260, '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', '6031f63b35e496680073248b04f5f4966800508b04f5f0966800506800040000ff354c075a00ff152c46570046ebd4c705e49668'),
     (0x116299, '0000', '61c3'),
@@ -60,7 +60,7 @@ PATCH = [
     (0x116547, '000000', 'c78084'),
     (0x116551, '0000000000000000000000000000000000000000000000', 'c78088000000ff7fff7f66c78090000000ffff66c78098'),
     (0x11656d, '0000000000000000000000000000', '31c0578b31568b7904e96706f4ff'),
-    (0x116580, '00000000000000000000000000000000000000000000000000000000000000000000', '8b8424e4020000833d24295a0000740750e8aa07f4ff58ba01000000e82305f4ffc3'),
+    (0x116580, '0000000000000000000000000000000000000000000000', '5052833d24295a00007405e8b007f4ff5a58e92d05f4ff'),
     (0x14cf13, '6aff572eff15c04557003d020100007409', 'e9e894fcff909090909090909090909090'),
     (0x14d442, '8954243489442428', 'e9e98efcff909090'),
     (0x14d573, '99daff', '098efc'),
@@ -84,10 +84,17 @@ def status(d):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
-        return 2
-    path = sys.argv[1]
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if args:
+        path = args[0]
+    else:                                     # double-click: look next to the patcher / in the current folder
+        here = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
+        cands = [os.path.join(d, 'trek.exe') for d in (here, os.getcwd())]
+        path = next((c for c in cands if os.path.exists(c)), None)
+        if not path:
+            print(__doc__)
+            print('No trek.exe found next to the patcher. Put it into the game folder or drop trek.exe on it.')
+            return 2
     if os.path.isdir(path):
         path = os.path.join(path, 'trek.exe')
     backup = path + '.mpfix_backup'
@@ -122,4 +129,7 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    rc = main()
+    if getattr(sys, 'frozen', False):         # keep the console window open after a double-click
+        input(chr(10) + 'Press Enter to close.')
+    sys.exit(rc)

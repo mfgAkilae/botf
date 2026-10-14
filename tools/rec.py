@@ -1,5 +1,5 @@
-import sys, struct
-sys.path.insert(0, r'E:\dev\botf\work\tools')
+import os, sys, struct
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness as H
 from autoturn import u32
 st = H.load_state(); idx = int(sys.argv[1])

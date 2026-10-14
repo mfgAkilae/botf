@@ -1,6 +1,8 @@
 #!/bin/bash
 # usage: m1series.sh <exe> <tries> <turns> [demo options]  — new game per try (verified join), then m1demo2
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 EXE=$1; TRIES=$2; TURNS=$3; shift 3
 for i in $(seq 1 $TRIES); do
   for g in 1 2 3; do

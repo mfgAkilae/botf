@@ -13,15 +13,14 @@ No game files are included. You need your own copy of the game.
 
 ## Installation
 
-1. Back up your game folder.
-2. Every player runs (Python 3, no dependencies):
-
-   ```
-   python release/botf_mpfix.py "C:\Games\BotF\trek.exe"
-   ```
-
-   `--check` shows the status, `--restore` brings back the original (`trek.exe.mpfix_backup`).
+1. Download `BotF_MP_fix.exe` from the [latest release](https://github.com/mfgAkilae/botf/releases/latest).
+2. Put it into the game folder (next to `trek.exe`) and double-click it, or drop `trek.exe` onto it.
+   A backup `trek.exe.mpfix_backup` is created.
+   Without the exe: `python release/botf_mpfix.py "C:\Games\BotF\trek.exe"` (Python 3, no
+   dependencies). `--check` shows the status, `--restore` brings back the original.
    Alternatively apply `release/BotF_MP_fix.patch` with the community patcher / Ultimate Editor.
+   All 143 `trek.exe` variants of "BOTF Most Active 2.0.4" (vanilla EN/DE, all resolutions, and the
+   mods ECM, ECMS, BOP, MUM, FAW, AAM, FMPM, UCW, UM5, UDM, GALM, PLUS) are supported.
 3. All players should use the patch. Unpatched players can still connect (the network message format
    is unchanged), but the fixes only take full effect when everyone is patched.
 
@@ -100,11 +99,55 @@ sends its own state to everybody). A save made after the problem does not show t
   comparison (`autoturn.py`, `ordercmp.py`, `sysdiag.py`).
 - `docs/static_audit.md` – multi-agent static audit of the binary with adversarial verification.
 
-The tools were written for one Windows machine and contain absolute paths (`E:\dev\botf\...`). They
-expect test copies of the game in `test\A` … `test\E` (each with its own dxwnd configuration so the
-game runs windowed), test builds made with `tools/build_test.py` (allows several instances, keeps
-inactive windows ticking, cursor injection), and UI templates in `tpl/` taken from your own copy of the
-game (not included).
+## Reproduce the results yourself
+
+Everything runs on one Windows PC with **Git Bash** and **Python 3** (`pip install keystone-engine capstone pillow`).
+All paths are relative to the repository root; the defaults can be changed with environment variables.
+
+1. **Game copies.** Create five copies of an installed BotF 2.0.4 (vanilla English, 800x600) in
+   `test/A` … `test/E` (or set `BOTF_TEST`). Each copy needs its own windowed-mode configuration
+   (dxwnd, `dxwnd.dxw` pointing to *that* copy's `trek.exe`), otherwise the game starts fullscreen.
+2. **DirectPlay.** Windows 10/11 ships DirectPlay as an optional feature. Either enable it, or put
+   `dplaysvr.exe`, `dplayx.dll`, `dpwsockx.dll` into `dplay/` (or `BOTF_DPLAY`) and `dplayx.dll` +
+   `dpwsockx.dll` into each game copy. If hosting fails with *"Can't start session, check network
+   tcp/ip settings"*, check `netsh int ipv4 show excludedportrange protocol=tcp`: Windows (Hyper-V / WinNAT)
+   may reserve the DirectPlay ports 2300–2400.
+3. **Test builds.** From your own `trek.exe` build the two test executables (several instances on one
+   desktop, inactive windows keep running, mouse input without taking over your cursor):
+
+   ```
+   python tools/build_test.py <your trek.exe> trek_t_bug.exe           # original game logic
+   python tools/build_test.py <your trek.exe> trek_t_fix.exe --fix     # with this repository's fix
+   ```
+4. **Reproduce the natural late-game sync error (bug N)** from the turn-320 save of the 5-player test
+   game (3 players left: B Klingons as host, C Federation, E Romulans) by replaying the recorded inputs:
+
+   ```
+   bash tools/resume_n.sh saves/nat5_bug_1402_t320 trek_t_bug.exe B C E
+   python tools/replay.py turnlog/nat5_bug_1402 320 331 43
+   ```
+
+   Expected with `trek_t_bug.exe`: `HEARTBEAT MISMATCH after turn 330` (all games show "A synchronization
+   error has occurred"). Repeat with `trek_t_fix.exe`: turns 320–331 stay in sync.
+5. **Martial-law (bug I) and fresh-build (bug M) scenarios** from the turn-103 save of the 5-player game:
+
+   ```
+   bash tools/r3test.sh trek_t_bug.exe     # then trek_t_fix.exe
+   bash tools/mtest.sh  trek_t_bug.exe turnlog/mtest_bug
+   ```
+6. **Long natural games** with five player agents and the observer (stops on heartbeat mismatch, crash,
+   lag or hang; checkpoints every 20 turns):
+
+   ```
+   bash tools/newgame5.sh trek_t_bug.exe            # new 5-human game, or resume a checkpoint:
+   bash tools/runlong5.sh trek_t_bug.exe turnlog/myrun 1402 300 saves/<checkpoint>
+   ```
+
+   The agents click fixed screen positions for each race and need the home-system position on the
+   galaxy map (`--home X,Y` in `runlong5.sh`); adjust these for a new galaxy.
+
+Note: the tool set grew during the investigation. Some older scripts (2-player experiments) still use
+fixed screen coordinates of one particular game and are kept for reference only.
 
 ## License
 

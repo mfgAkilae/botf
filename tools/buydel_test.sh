@@ -3,7 +3,9 @@
 # Qo'nos (system 43) from the turn-330 save: delete the build the turn processing had just started (after an
 # item bought the turn before completed), pick new structures and a ship, end the turn.
 # usage: buydel_test.sh <exe>
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 EXE=$1
 timeout 900 bash tools/resume_n.sh saves/hb_1402_t330 $EXE B C E | tail -1

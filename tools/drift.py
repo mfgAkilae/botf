@@ -40,7 +40,7 @@ def turn(trace):
     for x in hb: log('    ' + x)
     return bool(hb) or not line or 'ok' not in line[-1]
 
-log('=== drift test exe=%s before=%d after=%d global_delta=%d human_delta=%d' % (open(os.path.join(HERE, '..', '..', 'test', 'A', 'trek.exe'), 'rb').read()[0x56d46:0x56d4c].hex(), nb, na, gd, hd))
+log('=== drift test exe=%s before=%d after=%d global_delta=%d human_delta=%d' % (open(os.path.join(os.environ.get('BOTF_TEST', os.path.join(HERE, '..', 'test')), 'A', 'trek.exe'), 'rb').read()[0x56d46:0x56d4c].hex(), nb, na, gd, hd))
 for i in range(nb):
     if turn(False): sys.exit(1)
 ca, cb = counters('A'), counters('B')

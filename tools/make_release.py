@@ -10,7 +10,7 @@ import netfix
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 REL = os.environ.get('BOTF_RELEASE', os.path.join(BASE, 'release'))   # output folder
-SRC = os.environ.get('BOTF_VANILLA', r'E:\dev\botf\extract\{app}\Vanilla')   # unpacked installer: trek,1.exe .. trek,8.exe
+SRC = os.environ.get('BOTF_VANILLA', os.path.join(BASE, 'vanilla_src'))   # unpacked installer: trek,1.exe .. trek,8.exe
 VARIANTS = {  # installer source name -> description (from install_script.iss)
     'trek,1.exe': 'EN_800x600', 'trek,2.exe': 'DE_800x600',
     'trek,3.exe': 'EN_1024x768', 'trek,4.exe': 'DE_1024x768',

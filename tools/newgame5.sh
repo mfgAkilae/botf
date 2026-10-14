@@ -3,20 +3,22 @@
 # A host Cardassians, B Klingons, C Federation, D Ferengi, E Romulans; large ring galaxy, normal difficulty.
 # Every test/<X>/dxwnd.dxw must point to its own folder, otherwise the game starts fullscreen.
 set -e
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 EXE=${1:-trek_t_bug.exe}
 for x in A B C D E; do $H kill $x >/dev/null 2>&1 || true; done
 sleep 1
 for x in A B C D E; do
-  grep -q "test\\\\$x\\\\trek.exe" ../test/$x/dxwnd.dxw || { echo "dxwnd.dxw of $x points elsewhere"; exit 1; }
-  cp "$EXE" ../test/$x/trek.exe; : > ../test/$x/Crash.log
+  grep -qi "\\\\$x\\\\trek.exe" $TEST/$x/dxwnd.dxw || { echo "dxwnd.dxw of $x points elsewhere"; exit 1; }
+  cp "$EXE" $TEST/$x/trek.exe; : > $TEST/$x/Crash.log
 done
-rm -f ../test/?/dxwnd.lockfile.tmp      # stale after a crash: dxwnd does not hook, the game goes fullscreen
-tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath 'E:\dev\botf\work\dplay\dplaysvr.exe' -WorkingDirectory 'E:\dev\botf\work\dplay' -WindowStyle Hidden"
+rm -f "$TEST"/?/dxwnd.lockfile.tmp      # stale after a crash: dxwnd does not hook, the game goes fullscreen
+tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath '$(cygpath -w "$DPLAY/dplaysvr.exe")' -WorkingDirectory '$(cygpath -w "$DPLAY")' -WindowStyle Hidden"
 sleep 1
 for x in A B C D E; do
-  $H launch $x 'E:\dev\botf\test\'$x; sleep 6
+  $H launch $x "$(cygpath -w "$TEST/$x")"; sleep 6
   if ! $H wins $x | head -1 | grep -q "800, 600)"; then
     echo "instance $x is not windowed 800x600, aborting"
     for y in A B C D E; do $H kill $y >/dev/null 2>&1 || true; done; exit 1

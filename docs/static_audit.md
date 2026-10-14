@@ -186,11 +186,6 @@
 4. Implement Fix I (in place), Fix G, Fix H1+H2 and Fix J. A/B each one against its test, then run long 5-human games with the observer.
 5. Fix L and Fix K are cheap hardening.
 
-## Analysis scripts (scratchpad)
+## Analysis scripts
 
-Folder: `C:\Users\Stephan\AppData\Local\Temp\claude\E--dev-botf\849e8cd5-4ad3-4f6d-944f-0923dfe94ab2\scratchpad\`
-
-- `rngbfs.py`: RNG reachability.
-- `addpaths.py`: order-creation paths before the production snapshot.
-- `addpaths2.py`: order-creation paths after the snapshot.
-- `recread.py`: readers of sys+0x80..0x93 before production.
+The helper scripts used for this audit (RNG reachability, order-creation paths, record readers) were throw-away scripts and are not part of the repository.

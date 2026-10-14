@@ -2,7 +2,9 @@
 # Repeat the turn-320 replay of run nat5_bug_1402 (where instance C once exited silently during turn 321)
 # with exception tracers on all games until a game dies; the tracer log then holds the exception/exit code.
 # usage: deathhunt.sh <exe> <tries> <last_turn>
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 EXE=$1; N=$2; LAST=${3:-323}
 for i in $(seq 1 $N); do
   D=turnlog/death_$i; mkdir -p $D; rm -f $D/ktrace.stop

@@ -1,6 +1,8 @@
 #!/bin/bash
 # Host on A, prepare join on B (localhost). Screens captured to shots/.
-cd /e/dev/botf/work
+cd "$(dirname "$0")/.." || exit 1                 # repository root
+TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. test/E
+DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 H="python -I tools/harness.py"
 # --- host A
 $H click A 705 215; sleep 3
