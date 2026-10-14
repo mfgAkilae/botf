@@ -44,7 +44,7 @@ def main():
 
     # ---- community .patch file -----------------------------------------------------------
     lines = [
-        'NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law desyncs)',
+        'NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law desyncs, heap race)',
         'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-14',
         'DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.',
         'DESC: B) orders/queues of a faster player that arrive while this machine is still calculating',
@@ -60,6 +60,9 @@ def main():
         'DESC: M) deleting a build that the turn calculation had just started now also resets production on the',
         'DESC:    other machines (they kept the invested industry -> next build finished early -> sync error).',
         'DESC: N) deleting a BOUGHT build now tells the other machines (they kept the purchase -> sync error).',
+        'DESC: S) the memory manager now locks its default heap: the network thread and the game used it at',
+        'DESC:    the same time, which could hand out one memory block twice -> a game quit silently and the',
+        'DESC:    others saw "Disconnected", mostly in long games (crash while loading graphics or sounds).',
         'DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.',
         'DESC: Uses the free code area 0x516e60-0x5171b0 (file 0x116260) and .bss 0x6896e0-0x6897b8.',
         'DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.',

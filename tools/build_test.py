@@ -1,5 +1,7 @@
 """Build a TEST-ONLY trek.exe: allow multiple instances and drive the cursor from memory.
-usage: build_test.py <in.exe> <out.exe> [--fix] [--latency MS] [--delay74 MS]
+usage: build_test.py <in.exe> <out.exe> [--fix] [--nofixs] [--heapstress N] [--latency MS] [--delay74 MS]
+  --nofixs       with --fix: leave out Fix S (heap pool serialization), for A/B tests
+  --heapstress N with --fix: the network receive thread does N malloc/free pairs every 1 ms
   --fix          apply the multiplayer fix (netfix.py)
   --latency MS   per-packet sleep in the send loop (emulates a slow link, max 127)
   --delay74 MS   extra delay before the production-queue message 0x74 is sent
@@ -89,6 +91,43 @@ if slowai is not None:
     p.write(cave3, asm(f'push {slowai}; call dword ptr [0x574594]; jmp 0x458720', cave3))
     p.patch(0x4582cc, call_rel(0x4582cc, 0x458720), call_rel(0x4582cc, cave3))
     print('slowai', slowai)
+
+if '--nofixs' in sys.argv:
+    # all fixes except Fix S (default heap pool without MEM_POOL_SERIALIZE), for A/B tests of the heap race
+    p.patch(0x5a0a1c, '0280', '0080')
+    print('without Fix S')
+
+heapstress = opt('--heapstress')
+if heapstress is not None:
+    # The network receive thread (Fix D wait loop, 0x517000) wakes every 1 ms instead of 1 s and each time
+    # does <heapstress> malloc/free pairs on the default pool, like a burst of incoming game messages
+    # (the original allocates one list node per message with malloc on that thread).
+    rx = info['rxwait']
+    cave4 = sec + 0x140
+    p.write(cave4, asm(f'''
+        mov ecx, {heapstress}
+    hs_loop:
+        push ecx
+        mov eax, ecx
+        and eax, 0xff
+        add eax, 8
+        call 0x51d760
+        test eax, eax
+        jz hs_skip
+        mov byte ptr [eax], 0x5a
+        call 0x51d834
+    hs_skip:
+        pop ecx
+        dec ecx
+        jnz hs_loop
+        jmp dword ptr [0x5743fc]
+    ''', cave4))
+    code = p.read(rx, 0x60)
+    o = code.index(bytes.fromhex('ff15fc435700'))
+    p.patch(rx + o, 'ff15fc435700', call_rel(rx + o, cave4) + b'\x90')
+    o = code.index(bytes.fromhex('68e8030000'))
+    p.patch(rx + o, '68e8030000', '6a01909090')
+    print('heapstress', heapstress)
 
 p.save(dst)
 json.dump({'cursor_block': blk}, open(dst + '.json', 'w'))

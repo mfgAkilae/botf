@@ -16,6 +16,7 @@ No game files are included. You need your own copy of the game.
 1. Download `BotF_MP_fix.exe` from the [latest release](https://github.com/mfgAkilae/botf/releases/latest).
 2. Put it into the game folder (next to `trek.exe`) and double-click it, or drop `trek.exe` onto it.
    A backup `trek.exe.mpfix_backup` is created.
+   Already on v1.0.0? Just run the new version; it rebuilds `trek.exe` from the backup.
    Without the exe: `python release/botf_mpfix.py "C:\Games\BotF\trek.exe"` (Python 3, no
    dependencies). `--check` shows the status, `--restore` brings back the original.
    Alternatively apply `release/BotF_MP_fix.patch` with the community patcher / Ultimate Editor.
@@ -41,6 +42,7 @@ session. Player reports of the late-game bug almost always show the same signatu
 
 | | What goes wrong in the original | Evidence | Fix |
 |---|---|---|---|
+| **S** | **Two threads share one unprotected heap ("Disconnected").** The network receive thread allocates memory for every incoming game message with `malloc`, while the game's main thread uses the same memory pool all the time. That pool (SmartHeap default pool, flags at `0x5a0a1c`) was created without the "serialize" flag that the game's other network pools have, so it takes no lock. Now and then both threads get the same memory block; the heap breaks and the process dies a few moments later, mostly while loading a picture or sound from `stbof.res`. No `Crash.log` is written; the other players see "Disconnected". | Caught with a debugger in the test bed: the heap handed out a block that was still in use, 56 ms later the receive thread crashed. Several silent exits in long runs, all in the same memory structures. See [Verification](#verification). | The default pool is created with the serialize flag (1 byte), so SmartHeap locks it. |
 | **N** | **Deleting a build that was bought.** The game asks "industry invested, delete current build?". On YES it cancels the purchase only on the deleting player's machine. This is the only delete path that does not send a "delete order" request. The other machines keep the purchase and later compute different build costs. | **Occurred naturally** in a scripted 5-player game on the original game at turn 331 (`crcSolarBld` only). Replaying the recorded inputs from the turn-320 save reproduces it exactly. | The delete path sends the request like all others. |
 | **M** | **Deleting a build the turn processing has just started.** When a build completes, the next queue item is started; its order exists only on the owner's machine until the next turn. If the player deletes it right away, the other machines do not know the order, ignore the delete request and keep the invested industry. The next build then completes a turn earlier there. | Reproduced on the original from a turn-103 save: sync error in the following turn. | The delete request carries the system; a machine that does not find the order resets that system's production anyway. |
 | **I** | **Removing and re-adding martial law.** The owner restarts the martial-law turn counter; on the other machines the delete request clears only 2 of its 4 bytes, so their counter keeps running and the system's morale rises a turn early. | Reproduced on the original from a turn-103 save: sync error, `crcSolarBld` only. | The delete request clears the whole counter. |
@@ -52,7 +54,9 @@ session. Player reports of the late-game bug almost always show the same signatu
 
 **Why "late in the game"?** N, M and I are triggered by ordinary actions that big late-game empires
 perform constantly: many planets, full build queues, buying, re-planning builds, unrest in conquered
-systems. The more of that a game has, the more certain it is that a turn hits one of them.
+systems. The more of that a game has, the more certain it is that a turn hits one of them. S is a
+matter of chance per message: every turn of every player is another chance to hit the race, so the
+longer a game runs, the more likely one machine drops out.
 
 ## Verification
 
@@ -61,6 +65,12 @@ Five independent player agents (`tools/player.py`) play simultaneously like huma
 buying, labour, re-planning builds, clicking around while waiting. An observer (`tools/observer.py`)
 compares all games and the heartbeat checksums after every turn and attaches a debugger to catch
 crashes.
+
+For bug S the natural crash rate is about one silent exit per 30–50 turns of a 5-player game. The heap
+stress build (`tools/build_test.py --heapstress N`) makes the race frequent: the network receive thread
+does N `malloc`/`free` pairs every millisecond, like a burst of incoming messages. The crashes it
+produces without S have the same addresses as the natural ones (`0x548417` inflate cleanup, `0x5491c5`
+inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 
 | Run | Program | Turns | Result |
 |---|---|---|---|
@@ -72,32 +82,31 @@ crashes.
 | nat5_fix_1402 | patched, same agent behaviour as 1402 | 200 → 500 | no break (128 re-planned builds, 311 purchases) |
 | martial-law scenario (`tools/r3test.sh`) | original / patched | 103 → 107 | sync error / in sync |
 | fresh-build scenario (`tools/mtest.sh`) | original / patched | 103 → 106 | sync error / in sync |
+| nat5_fix_2001 / 2101 / 2201 | patched v1.0.0 (A–N, without S), from the turn-200 save | 200 → 210 / 210 / 236 | **silent exit** of one game each time (2101: possibly caused by the tracer) |
+| nat5_fixs_2301 | v1.1.0 (with S), same save | 200 → 360 | no break, no heap anomaly (two players eliminated on the way) |
+| heap stress, `--heapstress 4` (2502, 2504) | without S | 200 → 203 / never reached the game | **all 5 games crashed within 3 turns**; in 2504 six crashes while loading the save or in the lobby |
+| heap stress, `--heapstress 4` (2503) | with S | 200 → 250 | no crash, in sync |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
 sends its own state to everybody). A save made after the problem does not show the problem any more.
 
 ## Open points
 
-- **Silent exits (the "Disconnected" symptom).** Four times in the long runs a game process ended
-  without `Crash.log` during turn processing (once right after a player was eliminated); the other
-  players then see "Disconnected". One of them was caught with the debugger attached (fixed build,
-  host instance, turn 311):
-  - Access violation `c0000005` **writing** to `0x0e355000` at `0x00513de2`, process exit code
-    `0xc0000005`. The game's own crash handler does not run, so no `Crash.log` is written.
-  - `0x513de2` is the `rep movsd` in `FUN_00513dc0`, which appends the inflate output window to the
-    resource buffer at `[0x59776c] + [0x5cd72c]` **without any bounds check**. The block being copied
-    was `0x8000` bytes (one full deflate window); `0x4fe0` bytes had been written when the copy ran
-    into unmapped memory exactly at a page boundary.
-  - Call chain: `FUN_00515200` (load a file from `stbof.res`) → `FUN_005148e4` (allocate the buffer:
-    uncompressed size + name length + 1, from a 5 × 80 KB pool or the heap) → `FUN_00548440` / inflate
-    (`0x548xxx`) → `FUN_00513dc0`.
-  - So the loader writes past the end of its buffer. Usually that silently overwrites the next heap
-    block; it only crashes when the buffer happens to end at the end of a memory region, which explains
-    why the exits are rare and happen at random turns.
-  - Ruled out so far: the archive itself (all 5878 entries of `stbof.res` decompress to exactly their
-    declared size) and concurrent loading (every load runs on the game's main thread).
-  - Not found yet: why the decompressed output exceeds the buffer in that moment. The tracer now logs
-    every resource load (name, buffer, size) and the loader state at a crash; long runs are in progress.
+- **Silent exits (the "Disconnected" symptom) – explained and fixed by S.** How it was found:
+  - Several times in the long runs a game process ended without `Crash.log`; the other players then
+    saw "Disconnected". Caught with the debugger attached: access violations in the resource loader
+    (`0x513de2`, the unchecked copy of the inflate window in `FUN_00513dc0`), in the inflate cleanup
+    (`0x548417`, freeing a broken Huffman table list) and in inflate itself (`0x5491c5`, table pointer
+    `0x15e`). The archive is fine and every load runs on the main thread, so the heap was already broken.
+  - A heap tracer (`tools/ktrace.py`, `HEAPTRACE=1`) watches every `MemAllocPtr`/`MemFreePtr` call.
+    It reported a block handed out by `malloc` while it was still in use, and 56 ms later the network
+    receive thread crashed at `0x54e2d5` (run `nat5_fix_2201`, turn 236).
+  - `HEAPTID=1` lists which thread uses which pool: only the main thread and the receive thread use
+    SmartHeap. The receive thread allocates one list node per incoming game message with `malloc`
+    (`0x566cb0` → `0x51b2b0` → `0x51d760`) from the default pool, which had flags `0x8000` and no
+    critical section. The other pools the receive thread uses have `0x8002` (serialized).
+  - Tracer note: a breakpoint that is removed for a single step lets other threads pass unseen, which
+    produces fake double frees. `ktrace.py` therefore emulates the instruction at the heap breakpoints.
 - Candidates from static analysis that are not tested yet (see `docs/static_audit.md`): losing a
   shipyard while a ship is being built, the morale "production boost" event at morale ≥ 192, ship-class
   refit orders.
@@ -111,8 +120,9 @@ sends its own state to everybody). A save made after the problem does not show t
 - `tools/netfix.py` – the patch itself (assembly, applied with `tools/pe.py` / Keystone).
 - `tools/` – test bed and analysis tools: instance harness (`harness.py`), game setup
   (`newgame5.sh`, `resume5.sh`, `resume_n.sh`), player agents and observer, input replay
-  (`replay.py`), debugger-based tracers (`ktrace.py`, `wtrace.py`, `dbg.py`), state and order
-  comparison (`autoturn.py`, `ordercmp.py`, `sysdiag.py`).
+  (`replay.py`), debugger-based tracers (`ktrace.py` with `HEAPTRACE=1` / `HEAPTID=1` for heap checks,
+  `crashcatch.py`, `wtrace.py`, `dbg.py`), state and order comparison (`autoturn.py`, `ordercmp.py`,
+  `sysdiag.py`).
 - `docs/static_audit.md` – multi-agent static audit of the binary with adversarial verification.
 
 ## Reproduce the results yourself
@@ -161,6 +171,19 @@ All paths are relative to the repository root; the defaults can be changed with 
 
    The agents click fixed screen positions for each race and need the home-system position on the
    galaxy map (`--home X,Y` in `runlong5.sh`); adjust these for a new galaxy.
+
+7. **Heap race (bug S)** with the stress builds, from the turn-200 save of the 5-player game:
+
+   ```
+   python tools/build_test.py <your trek.exe> trek_t_stress_old.exe --fix --nofixs --heapstress 4
+   python tools/build_test.py <your trek.exe> trek_t_stress_new.exe --fix --heapstress 4
+   python tools/crashcatch.py turnlog/stress_old &      # debugger on every game from its start
+   HEAPTRACE=0 bash tools/runlong5.sh trek_t_stress_old.exe turnlog/stress_old 1 50 saves/nat5_bug_1301_t200
+   ```
+
+   Expected without S: games die within a few turns (often already while loading), `crashcatch` logs
+   access violations in SmartHeap or inflate. With `trek_t_stress_new.exe` the 50 turns run through.
+   Stop the catcher with `touch turnlog/stress_old/catch.stop`.
 
 Note: the tool set grew during the investigation. Some older scripts (2-player experiments) still use
 fixed screen coordinates of one particular game and are kept for reference only.

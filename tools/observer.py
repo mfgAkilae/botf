@@ -24,7 +24,7 @@ def log(*a):
 stopf = os.path.join(out, 'ktrace.stop')
 for f in (stopf, os.path.join(out, 'stop')):
     if os.path.exists(f): os.remove(f)
-env = dict(os.environ, TRACER_STOP=stopf, ONLY2='1', LOADTRACE='1', LOADQUIET='1')
+env = dict(os.environ, TRACER_STOP=stopf, ONLY2='1', LOADTRACE='1', LOADQUIET='1', HEAPTRACE=os.environ.get('HEAPTRACE', '0'), HEAPTID=os.environ.get('HEAPTID', '0'))
 tr = [subprocess.Popen([sys.executable, '-I', '-u', os.path.join(HERE, 'ktrace.py'), str(P[x]), '86400'],
                        stdout=open(os.path.join(out, 'ktrace_%s.log' % x), 'a'), stderr=subprocess.STDOUT, env=env) for x in NAMES]
 time.sleep(3)

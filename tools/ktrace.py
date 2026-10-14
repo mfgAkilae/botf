@@ -11,6 +11,9 @@ BPS = {0x4576c4: 'kill', 0x45770f: 'found2', 0x4577ca: 'found0'}
 if os.environ.get('LOADTRACE') == '1':     # resource loader: file name at entry, buffer/size after allocation
     BPS.update({0x5148e4: 'load', 0x514997: 'alloc', 0x513dc0: 'flush'})
 LASTLOAD = {'name': '', 'buf': 0, 'size': 0}
+if os.environ.get('HEAPTRACE') == '1':     # SmartHeap MemAllocPtr return / MemFreePtr entry: double free, reuse of live blocks
+    BPS.update({0x530132: 'halloc', 0x530554: 'hfree'})
+HEAP = {'live': {}, 'freed': {}, 'n': 0}
 u32 = lambda hp, a: struct.unpack('<I', rpm(hp, a, 4))[0]
 
 def stack(hp, esp, depth=6, span=0x300):
@@ -43,7 +46,34 @@ def main():
                     k32.Wow64GetThreadContext(th, ctypes.byref(ctx))
                     busy = struct.unpack('<i', rpm(hp, 0x5a291c, 4))[0]
                     turn = u32(hp, 0x5a2918)
-                    if BPS[addr] in ('load', 'alloc', 'flush'):
+                    if BPS[addr] in ('halloc', 'hfree'):
+                        ra = u32(hp, ctx.Esp)
+                        HEAP['n'] += 1
+                        if os.environ.get('HEAPTID') == '1':    # every distinct (thread, kind, caller) once, with its pool
+                            pool = u32(hp, ctx.Esp + 4) if BPS[addr] == 'halloc' else 0
+                            k_ = (ev.dwThreadId, BPS[addr], stack(hp, ctx.Esp, 3, 0x200))
+                            HEAP.setdefault('tid', {}); HEAP['tid'][k_] = HEAP['tid'].get(k_, 0) + 1
+                            if HEAP['tid'][k_] == 1:
+                                print('%7.3f turn %d busy %d TID %d %s pool %08x stack %s' % (time.time() - t0, turn, busy, ev.dwThreadId,
+                                      BPS[addr], pool, stack(hp, ctx.Esp, 10, 0x800)))
+                        if BPS[addr] == 'halloc':
+                            p_ = ctx.Eax
+                            if p_ in HEAP['live']:
+                                print('%7.3f turn %d busy %d HEAP ALLOC OF LIVE BLOCK %08x by %06x, still owned by alloc at %06x  stack %s' % (
+                                    time.time() - t0, turn, busy, p_, ra, HEAP['live'][p_], stack(hp, ctx.Esp, 16, 0x800)))
+                            HEAP['live'][p_] = ra; HEAP['freed'].pop(p_, None)
+                        else:
+                            p_ = u32(hp, ctx.Esp + 4)
+                            if p_ in HEAP['freed'] and p_ not in HEAP['live']:
+                                print('%7.3f turn %d busy %d HEAP DOUBLE FREE %08x by %06x, first freed by %06x  stack %s' % (
+                                    time.time() - t0, turn, busy, p_, ra, HEAP['freed'][p_], stack(hp, ctx.Esp, 16, 0x800)))
+                            if p_:
+                                HEAP['live'].pop(p_, None); HEAP['freed'][p_] = ra
+                        if HEAP['n'] % 200000 == 0:
+                            print('%7.3f turn %d heap events %d live %d freed %d' % (time.time() - t0, turn, HEAP['n'], len(HEAP['live']), len(HEAP['freed'])))
+                            if len(HEAP['freed']) > 200000:
+                                HEAP['freed'] = dict(list(HEAP['freed'].items())[-100000:])
+                    elif BPS[addr] in ('load', 'alloc', 'flush'):
                         if BPS[addr] == 'load':
                             nm = rpm(hp, ctx.Eax, 80).split(bytes(1))[0].decode('latin-1')
                             LASTLOAD['name'] = nm
@@ -94,8 +124,15 @@ def main():
                         else:
                             print('        -> no match')
                     sys.stdout.flush()
-                    wpm(hp, addr, orig[addr]); ctx.Eip = addr; ctx.EFlags |= 0x100
-                    k32.Wow64SetThreadContext(th, ctypes.byref(ctx)); k32.CloseHandle(th); pend[ev.dwThreadId] = addr
+                    if addr == 0x530132:                # emulate RET 0xc: no single step, so other threads never pass unseen
+                        ctx.Eip = u32(hp, ctx.Esp); ctx.Esp += 0x10
+                        k32.Wow64SetThreadContext(th, ctypes.byref(ctx)); k32.CloseHandle(th)
+                    elif addr == 0x530554:              # emulate PUSH EBX
+                        ctx.Esp -= 4; wpm(hp, ctx.Esp, struct.pack('<I', ctx.Ebx)); ctx.Eip = addr + 1
+                        k32.Wow64SetThreadContext(th, ctypes.byref(ctx)); k32.CloseHandle(th)
+                    else:
+                        wpm(hp, addr, orig[addr]); ctx.Eip = addr; ctx.EFlags |= 0x100
+                        k32.Wow64SetThreadContext(th, ctypes.byref(ctx)); k32.CloseHandle(th); pend[ev.dwThreadId] = addr
                 elif ec in (0x4000001E, 0x80000004) and ev.dwThreadId in pend:
                     wpm(hp, pend.pop(ev.dwThreadId), bytes([0xCC]))
                 elif ec in (0x80000003, 0x4000001F, 0x4000001E, 0x80000004): pass
@@ -121,11 +158,21 @@ def main():
             k32.ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, cont)
     finally:
         for b, o in orig.items(): wpm(hp, b, o)
-        t1 = time.time()
-        while pend and time.time() - t1 < 5:
-            if not k32.WaitForDebugEvent(ctypes.byref(ev), 200): continue
-            if ev.dwDebugEventCode == 1 and ev.u.Exception.ExceptionRecord.ExceptionCode in (0x4000001E, 0x80000004):
-                pend.pop(ev.dwThreadId, None)
+        # drain queued events: a thread that already hit an INT3 must be rewound to the restored instruction,
+        # otherwise it resumes one byte too far after the detach and crashes
+        t1 = time.time(); quiet = time.time()
+        while time.time() - t1 < 10 and (pend or time.time() - quiet < 1.0):
+            if not k32.WaitForDebugEvent(ctypes.byref(ev), 100): continue
+            quiet = time.time()
+            if ev.dwDebugEventCode == 1:
+                er = ev.u.Exception.ExceptionRecord; ec, addr = er.ExceptionCode, er.ExceptionAddress or 0
+                if ec in (0x4000001E, 0x80000004):
+                    pend.pop(ev.dwThreadId, None)
+                elif ec in (0x4000001F, 0x80000003) and addr in orig:
+                    th = k32.OpenThread(0x1F03FF, False, ev.dwThreadId)
+                    ctx = WOW64_CONTEXT(); ctx.ContextFlags = 0x10007
+                    k32.Wow64GetThreadContext(th, ctypes.byref(ctx)); ctx.Eip = addr
+                    k32.Wow64SetThreadContext(th, ctypes.byref(ctx)); k32.CloseHandle(th)
             k32.ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, DBG_CONTINUE)
         k32.DebugActiveProcessStop(pid); print('detached')
 

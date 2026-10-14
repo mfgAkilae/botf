@@ -9,7 +9,8 @@ TEST=${BOTF_TEST:-$PWD/test}                       # game instances test/A .. te
 DPLAY=${BOTF_DPLAY:-$PWD/dplay}                    # DirectPlay files (dplaysvr.exe, dpwsockx.dll)
 EXE=$1; D=$2; SEED=$3; N=$4; SAV=${5:-saves/five_1201_t103}; shift 5 2>/dev/null; PLAYERS="${*:-A B C D E}"
 mkdir -p $D
-if [ "$PLAYERS" = "A B C D E" ]; then bash tools/resume5.sh $SAV $EXE | tail -1 || exit 1; else bash tools/resume_n.sh $SAV $EXE $PLAYERS | tail -1 || exit 1; fi
+if [ "$PLAYERS" = "A B C D E" ]; then R=$(bash tools/resume5.sh $SAV $EXE | tail -1); else R=$(bash tools/resume_n.sh $SAV $EXE $PLAYERS | tail -1); fi
+echo "$R"; echo "$R" | grep -q "^loaded after" || { echo "resume failed, not starting the run"; exit 1; }
 sleep 3
 nohup python -I -u tools/observer.py $N $D > $D/observer_stdout.txt 2>&1 &
 sleep 6

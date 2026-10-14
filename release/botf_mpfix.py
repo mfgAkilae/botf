@@ -64,7 +64,8 @@ PATCH = [
     (0x14cf13, '6aff572eff15c04557003d020100007409', 'e9e894fcff909090909090909090909090'),
     (0x14d442, '8954243489442428', 'e9e98efcff909090'),
     (0x14d573, '99daff', '098efc'),
-    (0x14d5f4, '6800866800', 'e9678dfcff')
+    (0x14d5f4, '6800866800', 'e9678dfcff'),
+    (0x19e81c, '00', '02')
 ]
 SLEEP_OFF = 0x14d5ce          # push 0x0a -> push 0x00 (identical to the community packet.patch)
 CAVE = (0x116260, 0x117200)       # must be zero before patching

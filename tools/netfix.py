@@ -443,5 +443,15 @@ def apply(p):
     ''')
     p.patch(0x4fd92f, call_rel(0x4fd92f, 0x4576c4), call_rel(0x4fd92f, buydel))
 
+    # ---- Fix S: serialize SmartHeap's default pool (malloc/free) -------------------------------------
+    # The network receive thread allocates a list node for every incoming game message with malloc
+    # (0x566cb0 -> 0x51b2b0 -> 0x51d760), while the main thread uses the same pool all the time. The
+    # default pool is created from the static flags at 0x5a0a1c = MEM_POOL_DEFAULT (0x8000) without
+    # MEM_POOL_SERIALIZE (0x0002), so MemAllocPtr/MemFreePtr take no lock: two threads can be handed the
+    # same block and the heap breaks (silent exits in the resource loader / inflate, crashes in the
+    # receive thread). The game's other pools that the receive thread uses already have 0x8002.
+    # With the flag MemPoolInit (0x52ef48) initializes the pool's critical section itself.
+    p.patch(0x5a0a1c, '0080', '0280')
+
     out["code_end"] = code
     return out
