@@ -8,15 +8,18 @@ k32.DebugActiveProcess.argtypes = [wintypes.DWORD]; k32.DebugActiveProcessStop.a
 k32.DebugSetProcessKillOnExit.argtypes = [wintypes.BOOL]; k32.OpenProcess.restype = wintypes.HANDLE
 ONLY2 = os.environ.get('ONLY2') == '1'
 BPS = {0x4576c4: 'kill', 0x45770f: 'found2', 0x4577ca: 'found0'}
+if os.environ.get('LOADTRACE') == '1':     # resource loader: file name at entry, buffer/size after allocation
+    BPS.update({0x5148e4: 'load', 0x514997: 'alloc', 0x513dc0: 'flush'})
+LASTLOAD = {'name': '', 'buf': 0, 'size': 0}
 u32 = lambda hp, a: struct.unpack('<I', rpm(hp, a, 4))[0]
 
-def stack(hp, esp):
-    raw = rpm(hp, esp, 0x300); ra = []
+def stack(hp, esp, depth=6, span=0x300):
+    raw = rpm(hp, esp, span); ra = []
     for o in range(0, len(raw) - 3, 4):
         v = struct.unpack_from('<I', raw, o)[0]
         if 0x401000 <= v < 0x570000 and rpm(hp, v - 5, 1) == bytes([0xe8]):
             ra.append('%06x' % v)
-        if len(ra) >= 6: break
+        if len(ra) >= depth: break
     return ' '.join(ra)
 
 def main():
@@ -40,7 +43,23 @@ def main():
                     k32.Wow64GetThreadContext(th, ctypes.byref(ctx))
                     busy = struct.unpack('<i', rpm(hp, 0x5a291c, 4))[0]
                     turn = u32(hp, 0x5a2918)
-                    if BPS[addr] == 'kill':
+                    if BPS[addr] in ('load', 'alloc', 'flush'):
+                        if BPS[addr] == 'load':
+                            nm = rpm(hp, ctx.Eax, 80).split(bytes(1))[0].decode('latin-1')
+                            LASTLOAD['name'] = nm
+                            if not os.environ.get('LOADQUIET'):
+                                print('%7.3f turn %d busy %d LOAD tid %d %s' % (time.time() - t0, turn, busy, ev.dwThreadId, nm))
+                        elif BPS[addr] == 'alloc':
+                            LASTLOAD['buf'] = ctx.Eax; LASTLOAD['size'] = u32(hp, ctx.Ebp + 0x13) + len(LASTLOAD['name']) + 1
+                            if not os.environ.get('LOADQUIET'):
+                                print('%7.3f turn %d busy %d ALLOC tid %d buf %08x size %d' % (time.time() - t0, turn, busy, ev.dwThreadId, ctx.Eax, u32(hp, ctx.Ebp + 0x13)))
+                        else:                                   # FUN_00513dc0(src=EAX, len=EDX): append to [0x59776c]+[0x5cd72c]
+                            buf, cur = u32(hp, 0x59776c), u32(hp, 0x5cd72c)
+                            if ctx.Edx and (buf != LASTLOAD['buf'] or cur + ctx.Edx > LASTLOAD['size']):
+                                print('%7.3f turn %d busy %d OVERFLOW tid %d file %s buf %08x (alloc %08x) cursor %d + len %d > alloc size %d  stack %s' % (
+                                    time.time() - t0, turn, busy, ev.dwThreadId, LASTLOAD['name'], buf, LASTLOAD['buf'], cur, ctx.Edx,
+                                    LASTLOAD['size'], stack(hp, ctx.Esp, 24, 0x1000)))
+                    elif BPS[addr] == 'kill':
                         key = rpm(hp, ctx.Eax, 0x18)
                         s, tg, e = struct.unpack('<IIH', key[:10])
                         if ONLY2 and ctx.Edx != 2:
@@ -88,10 +107,12 @@ def main():
                         ctx = WOW64_CONTEXT(); ctx.ContextFlags = 0x10007
                         k32.Wow64GetThreadContext(th, ctypes.byref(ctx)); k32.CloseHandle(th)
                         info = [er.ExceptionInformation[i] for i in range(min(er.NumberParameters, 3))]
-                        print('%7.3f turn %d busy %d EXCEPTION %08x at %08x %s chance info %s eip %08x eax %08x ebx %08x ecx %08x edx %08x esi %08x edi %08x esp %08x stack %s' % (
+                        print('%7.3f turn %d busy %d EXCEPTION %08x at %08x %s chance tid %d info %s eip %08x eax %08x ebx %08x ecx %08x edx %08x esi %08x edi %08x esp %08x ebp %08x stack %s' % (
                             time.time() - t0, u32(hp, 0x5a2918), struct.unpack('<i', rpm(hp, 0x5a291c, 4))[0], ec, addr,
-                            'first' if ev.u.Exception.dwFirstChance else 'SECOND', [hex(x) for x in info], ctx.Eip, ctx.Eax, ctx.Ebx,
-                            ctx.Ecx, ctx.Edx, ctx.Esi, ctx.Edi, ctx.Esp, stack(hp, ctx.Esp)))
+                            'first' if ev.u.Exception.dwFirstChance else 'SECOND', ev.dwThreadId, [hex(x) for x in info], ctx.Eip, ctx.Eax, ctx.Ebx,
+                            ctx.Ecx, ctx.Edx, ctx.Esi, ctx.Edi, ctx.Esp, ctx.Ebp, stack(hp, ctx.Esp, 24, 0x1000)))
+                        print('        loader: buf [59776c]=%08x cursor [5cd72c]=%08x inptr [5fd73c]=%08x inleft [5fd748]=%08x filepos [5cd728]=%08x pool [5cd720]=%08x' % tuple(
+                            u32(hp, a) for a in (0x59776c, 0x5cd72c, 0x5fd73c, 0x5fd748, 0x5cd728, 0x5cd720)))
                     except Exception as e:
                         print('EXCEPTION %08x at %08x (context failed: %s)' % (ec, addr, e))
                     sys.stdout.flush()
