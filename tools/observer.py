@@ -98,7 +98,9 @@ try:
                 reason = 'done %d turns' % n; break
         if reason:
             break
-        if time.time() - last_progress > 300:
+        tl = os.path.join(out, 'tactical.log')                # manual combats take minutes: allow 20 min while
+        busy_tac = os.path.exists(tl) and time.time() - os.path.getmtime(tl) < 30   # tactical.py plays rounds
+        if time.time() - last_progress > (1200 if busy_tac else 300):
             reason = 'stuck (busy %s, turns %s)' % ({x: i32(P[x], BUSY_ADDR) for x in live}, {x: u32(P[x], TURN_ADDR) for x in live})
             for x in live:
                 screen(x, P[x], os.path.join('..', out, 'stuck%s_t%d' % (x, seen[x])))

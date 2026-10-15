@@ -18,7 +18,8 @@ UI = {
     'B': dict(turn=(95, 25), wheel=(95, 230), autobtn=(135, 413)),
     'E': dict(turn=(95, 25), wheel=(95, 230), autobtn=(135, 413)),
     'C': dict(turn=(80, 22), wheel=(97, 260), autobtn=(128, 415)),
-    'A': dict(turn=(95, 25), wheel=(95, 230), autobtn=(135, 413)), 'D': dict(turn=(95, 25), wheel=(95, 230), autobtn=(135, 413)),
+    'A': dict(turn=(95, 35), wheel=(95, 245), autobtn=(125, 419), optbox=(10, 55, 185, 85)),
+    'D': dict(turn=(100, 22), wheel=(97, 255), autobtn=(138, 414)),
 }
 REF = {}
 ROUNDS = {}
@@ -32,7 +33,8 @@ def tactical_view(img, x):
     # the tactical view's left column starts with TURN/END and OPTIONS; no strategic screen has OPTIONS there.
     # tpl/tactical_<X>.png = the OPTIONS button (10,45)-(185,75) cut from a tactical screenshot of that race
     r = REF.get(x)
-    return r is not None and sum(ImageStat.Stat(ImageChops.difference(img.crop((10, 45, 185, 75)), r)).mean) / 3 < 20
+    box = UI.get(x, {}).get('optbox', (10, 45, 185, 75))
+    return r is not None and sum(ImageStat.Stat(ImageChops.difference(img.crop(box), r)).mean) / 3 < 20
 
 
 def dialog_seen(img):
@@ -57,6 +59,9 @@ def main():
                     log('%s: combat on screen but no tactical_%s.png reference yet' % (x, x))
                 continue
             hw = H.main_window(pid); acts = []
+            # Enter closes info dialogs such as "Cloaked ships get a free move. Click CLOSE to review turn."
+            H.user32.PostMessageW(hw, 0x100, 0x0d, 1); time.sleep(0.05); H.user32.PostMessageW(hw, 0x101, 0x0d, 0xC0000001)
+            time.sleep(0.3)
             for _ in range(rnd.randint(2, 8)):
                 r = rnd.random()
                 if r < 0.15:

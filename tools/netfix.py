@@ -614,6 +614,9 @@ def apply(p):
     # names are part of the ship checksum) and drops the economy-checksum scratch buffer [0x58fd20] of
     # FUN_0043db00, which is allocated once for the system count of the first game and never resized (a larger
     # galaxy loaded later in the same process overran it). It is allocated again on its next use.
+    # It also resets the ship-name table 0x5b5568 (FUN_00475410, otherwise only called for a new game): the
+    # number of RNG draws when naming a new ship depends on that table, so a restarted player went out of sync
+    # at the first new ship after loading (found by a static code review).
     w_reset = put('monreset', f'''
         mov dword ptr [0x58fde4], edx
         mov dword ptr [0x58fdb0], 0x4b
@@ -626,6 +629,7 @@ def apply(p):
         call 0x51d834
         mov dword ptr [0x58fd20], 0
     nobuf:
+        call 0x475410
         popad
         ret
     ''')
@@ -773,6 +777,116 @@ def apply(p):
     ''')
     # 0x457b57: mov ebx,[eax] / cmp ebx,[ecx] / je 0x457b62 (6 bytes)
     p.patch(0x457b57, '8b183b1974' + p.read(0x457b5c, 1).hex(), jmp_rel(0x457b57, match9) + bytes([0x90]))
+
+    # ---- Fix X: wormhole exit does not depend on the local galaxy-map view ---------------------------------
+    # A task force entering a wormhole (mission 13, FUN_00469890) is moved to the partner wormhole's position,
+    # converted with the galaxy-map widget's view transform (FUN_004d8200 -> [[0x595554]+0x6c], used by
+    # FUN_004dbcd0 / FUN_004dbc00: view origin +0xc/+0x10, zoom +0x1c). That is the local player's scroll and
+    # zoom state, so the exit sector differed between computers -> sync error (task forces, military sectors).
+    # The transform now gets a fixed view (origin 0/0, zoom 1), which puts the task force at the partner
+    # wormhole on every computer. Found by a static code review.
+    view = code
+    p.write(view, bytes(0x1c) + struct.pack('<I', 1))
+    code += 0x20
+    # 0x469952: call FUN_004d8200 (5 bytes) -> mov eax, view
+    p.patch(0x469952, call_rel(0x469952, 0x4d8200), bytes([0xb8]) + struct.pack('<I', view))
+
+    # ---- Fix Y: a player who leaves after ending the turn no longer blocks the turn barrier ---------------
+    # Received orders wait in one of four slots ([0x5b4870 + slot*8]: list, +4 empire). When a player drops,
+    # FUN_00457dc0 empties his slot but leaves the list pointer set; the barrier mask is built from all slots
+    # with a pointer (FUN_004561b0) and compared with the human mask (0x4581ab), so after a player had already
+    # ended the turn and then dropped, every machine that had his orders waited for ever. The slot is now
+    # released like at the end of a merge (FUN_00455ec0: destroy list, pointer 0, empire 0xff). Found by a
+    # static code review.
+    slotfree = put('slotfree', f'''
+        mov eax, dword ptr [ecx+0x5b4870]
+        call 0x51b520
+        mov eax, dword ptr [ecx+0x5b4870]
+        xor edx, edx
+        call 0x51b450
+        mov dword ptr [ecx+0x5b4870], 0
+        mov byte ptr [ecx+0x5b4874], 0xff
+        jmp 0x457df9
+    ''')
+    # 0x457dee: mov eax,[ecx+0x5b4870] / call 0x51b520 (11 bytes)
+    p.patch(0x457dee, '8b8170485b00' + call_rel(0x457df4, 0x51b520).hex(), jmp_rel(0x457dee, slotfree) + bytes(6 * [0x90]))
+
+    # Safety net for the same barrier: the mask of players whose orders are in (FUN_004561b0) is ANDed with the
+    # human mask [0x5a2b28], so a slot of a player who dropped or was eliminated (an eliminated player could
+    # still press END TURN and claim a slot, FUN_004565a0 does not check the sender) never blocks the others.
+    barmask = put('barmask', f'''
+        mov al, dl
+        and al, byte ptr [0x5a2b28]
+        pop edx
+        pop ecx
+        ret
+    ''')
+    # 0x4561dd: mov al,dl / pop edx / pop ecx / ret (5 bytes)
+    p.patch(0x4561dd, '88d05a59c3', jmp_rel(0x4561dd, barmask))
+
+    # ---- Fix Z: the sync checksums cover what they are meant to cover (detection only) ---------------------
+    # Military sectors (FUN_00466360): the N sector records are copied as 8 bytes each into a buffer, but the
+    # CRC got the record count N as byte length, so 7/8 of the buffer was never compared and a sector
+    # divergence went unnoticed until it hit another checksum. After the copy loop EBX points behind the last
+    # record, so the length is now EBX - buffer (N = 0: loop skipped, EBX = buffer, length 0 as before).
+    # 0x4663cc: mov edx,[esp+4] / mov eax,[esp] (7 bytes) -> mov eax,[esp] / mov edx,ebx / sub edx,eax
+    p.patch(0x4663cc, '8b5424048b0424', '8b042489da29c2')
+    # Diplomacy (FUN_0045d570) sorts its records by id +0x2c before the CRC so that the hash-table order does
+    # not matter, but the compare function 0x45d670 compared the first record with itself: it never returned
+    # -1, so the sort did not produce one canonical order. Now first.id < second.id -> -1, == -> 0, > -> 1.
+    # 0x45d677: mov ebx,[ecx+0x2c] -> mov ebx,[edx+0x2c]; 0x45d67e: cmp ebx,[edx+0x2c] -> cmp eax,ebx / nop
+    p.patch(0x45d677, '8b592c', '8b5a2c')
+    p.patch(0x45d67e, '3b5a2c', '39d890')
+    # Both were found by a static code review (Codex gpt-6-astra).
+
+    # ---- Fix O: stations of an eliminated empire are all removed ---------------------------------------
+    # When an empire loses its last colony, FUN_0043af70 walks the station array [0x5a36d0] (count word
+    # [0x5a36c0], record 0x5c) and deletes the empire's stations with FUN_0044b000, which moves the following
+    # records down by one. The loop then advanced its index anyway (0x43afec jmp 0x43afa3), so the station
+    # that moved into the freed slot was skipped and stayed on the map with the owner of a dead empire.
+    # The same happens on every computer (no desync), but the orphan keeps taking part in the map-influence
+    # step. After a delete the loop now re-checks the same index (jmp 0x43af80: reload count, same slot).
+    # Found by a static code review (Codex gpt-6-astra).
+    p.patch(0x43afec, 'ebb5', 'eb92')
+
+    # ---- Fix P: changing conquest/liberation of a running invasion mission is no longer lost ------------
+    # At End Turn FUN_00466700 compares each UI fleet with the real one to decide whether a new fleet order
+    # must be sent. The mission parameter +0x30 was only compared for mission 1; for the invasion mission
+    # 0x0e the dialog writes conquer (1) / liberate (2) into +0x30, but with an unchanged path the fleets
+    # counted as equal and no order was sent: the old choice was executed on every computer (no desync, but
+    # the player's command was lost). For mission 0x0e a changed +0x30 now takes the same branch as a changed
+    # path (0x4667b1: FUN_00466468 replaces the order, result "not equal"). Found by a static code review
+    # (Codex gpt-6-astra).
+    invparm = put('invparm', '''
+        cmp dword ptr [eax+0x2c], 1
+        je 0x466722
+        cmp dword ptr [eax+0x2c], 0xe
+        jne 0x4667a9
+        mov edx, dword ptr [eax+0x30]
+        cmp edx, dword ptr [ebx+0x30]
+        jne 0x4667b1
+        jmp 0x4667a9
+    ''')
+    # 0x466718: cmp dword ptr [eax+0x2c],1 / jne 0x4667a9 (10 bytes)
+    p.patch(0x466718, '83782c01' + '0f85' + struct.pack('<i', 0x4667a9 - 0x466722).hex(),
+            jmp_rel(0x466718, invparm) + b'\x90' * 5)
+
+    # ---- Fix Q: colonize order of a task force that lost its colony ship no longer crashes ---------------
+    # Combat runs before the phase-1 missions of the turn. If it destroys the last colony ship of a task force
+    # with a colonize order but other ships survive, the task force's colony-ship id +0x44 becomes -1, the
+    # order stays, and the colonize executor FUN_004699d0 looks up ship -1 (0x469a5c -> null) and reads
+    # ship+0x52 at 0x469ad4: access violation, Crash.log, everybody else sees "Disconnected". Now a missing
+    # ship takes the existing "cannot colonize" exit 0x469d60 (order removed locally with mode 0 on every
+    # computer, mission reset) before anything is changed. Found by a static code review (Codex gpt-6-astra).
+    colship = put('colship', '''
+        mov dword ptr [esp+0x1cc], eax
+        test eax, eax
+        jne 0x469a68
+        xor edx, edx
+        jmp 0x469d60
+    ''')
+    # 0x469a61: mov [esp+0x1cc], eax (7 bytes)
+    p.patch(0x469a61, '898424cc010000', jmp_rel(0x469a61, colship) + b'\x90' * 2)
 
     out["code_end"] = code
     return out

@@ -54,6 +54,13 @@ session. Player reports of the late-game bug almost always show the same signatu
 | **L** | **Messages that change the game arrive while another machine still calculates the turn.** When the host closes the options dialog, message 0x85 reaches clients that may still be processing; they quit with `conninit.c` line 617 ("turnState != TURN_PROCESS"). Loading a multiplayer save (0x72/0x73) had the same timing problem and replaced the game under a running turn. | Reproduced: host broadcasts its options during a tactical combat (`tools/opt85.sh`): B and E crash on the original; with L no crash and in sync. | These messages are held back during turn processing (the Fix B mechanism) and applied in arrival order afterwards. |
 | **K** | **Turn timer inside a dialog.** With a turn time limit, the timer can end the turn while a modal dialog such as "delete current build?" is open; confirming it afterwards changes orders that were already sent. | Static review. Measured: the message-dispatch depth is 1 while that dialog is open, so the guard applies; the full expiry was not reproduced (the timer cannot be switched on in a running game and our lobby automation did not set it). | Expiry is deferred while a dialog is open and taken on the next tick. |
 | **V** | **Delete requests matched by number only.** A request carries only the target's sequence number, and those numbers differ between machines; a machine without the target could delete an unrelated order. | Static review; regression: martial-law and fresh-build delete scenarios stay in sync. | The match also requires the requesting empire (players can only delete their own orders). |
+| **Y** | **A player leaves after ending the turn.** His orders wait in a receive slot; when he drops, the slot is emptied but stays marked as used, and the turn barrier waits for every used slot. The remaining players wait for ever. | Reproduced (`tools/ytest.sh`): E ends the turn and is killed; after the drop A–D end the turn: the original hangs, with Y the turn is calculated and A–D stay in sync for 3 more turns. Found by a static code review. | The slot is released like at the end of a turn; in addition the barrier only waits for human players still in the game. |
+| **Q** | **A colonize order whose colony ship was destroyed in combat** (other ships of the fleet survive): the colonize step looks up the missing ship and reads through a null pointer: crash, everybody else sees "Disconnected". | Reproduced by injection (`tools/coltest.sh`, `tools/colinject.py`: the first colonize of a new game finds no colony ship): both games of the original crash in turn 1; with Q the order is dropped and the game stays in sync. Found by a static code review. | A missing colony ship takes the existing "cannot colonize" exit before anything is changed. |
+| **X** | **Wormholes.** The exit position of a fleet that flies through a wormhole was converted with the local galaxy-map view (scroll and zoom of that player's screen), so the fleet could come out in different sectors on different machines. | Static code review; regression only (no wormhole in our test galaxies). | The conversion gets a fixed view, the same on every machine. |
+| W3 | The ship name list belongs to the program and was not reset on load (same class as W). | Static code review; regression only. | Reset when a game is loaded. |
+| P | **Changing conquer/liberate on a running invasion is lost.** At End Turn the game only sends a fleet order when something it compares has changed; the conquer/liberate choice was compared for one mission type only. The old choice was executed (on every machine, so no sync error). | Static code review (found independently by two reviews). | The choice is compared for the invasion mission as well. |
+| O | **Stations of an eliminated empire.** Removing them skipped the station after each deleted one, so stations of a dead empire stayed on the map (on every machine). | Static code review. | The removal loop re-checks the same slot after a delete. |
+| Z | **Checksums with gaps** (detection only): the military-sector checksum covered only one eighth of its data, and the diplomacy checksum sorted its records with a broken compare function. A divergence there was noticed late or, in theory, a false sync error was possible. | Static code review; regression: long runs stay in sync with the full checksum. | Correct length and compare function. |
 | E | Turn processing itself sends "delete order" requests that the receiver matches only by a sequence number. These numbers are assigned per machine and drift apart, so a request could hit an unrelated order on one machine. | Reproduced only artificially (injected collision); not observed in natural games. | Turn processing no longer sends these requests (every machine deletes the order itself anyway). |
 | A | Build queues (`0x74`) were sent after the orders (`0x68`); the last player's orders already start the turn on the other machines, so queues could be applied in the middle of the calculation. | Trace in the test bed. | `0x74` is sent before `0x68`. |
 | B | Orders of a faster player for the *next* turn were applied in the middle of a slower machine's turn calculation. | Trace in the test bed. | Held back while a turn is being calculated, delivered afterwards in order. |
@@ -102,6 +109,10 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | monster countdown (A started with 2) | original / with W | 103 → 107 | sync error at 105 / in sync |
 | war5_tac2..5: manual tactical combat, 5 humans | v1.2.0 + T | 280 → 390 | no break; ~80 tactical combat rounds (B, C, E), monsters, wars |
 | war5_01: new small spiral galaxy, 5 humans | v1.2.0 | 0 → 300 | no break: per player ~250 ships ordered, ~100 purchases, up to 400 fleet courses and 200 missions, ~100 diplomatic actions on three players, 16 declarations of war, monsters and random events on |
+| player drop after ending the turn (`tools/ytest.sh`) | original / v1.6 | 103 → 107 | turn barrier hangs for ever / in sync |
+| colonize without colony ship (`tools/coltest.sh`) | original / v1.6 | new 2-player game | both games crash in turn 1 / 7 turns in sync (4 colonizations) |
+| war5_v15c/d: 5 humans, manual tactical combat for all races | v1.5.0 | 160 → 200 | no break |
+| war5_q / col_q | v1.6 candidate | 200 → 220 / 20 → 31 | no break |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
 sends its own state to everybody). A save made after the problem does not show the problem any more.
@@ -135,9 +146,13 @@ sends its own state to everybody). A save made after the problem does not show t
   between Intel and AMD processors; task-force ids are 16 bit (needs about 32,000 created task forces).
 - A manual save made during a turn does not contain that turn's orders (orders are only saved at turn
   boundaries); the autosave is not affected.
-- Ten focused code reviews (tactical combat, session/lifecycle, turn processing, user-interface writes,
-  intelligence/minor races/invasion, save/load, computer empires, order application, reachable asserts,
-  network transport) found no further candidates beyond the fixes listed above.
+- About thirty focused code reviews with three different models (tactical combat, session/lifecycle, turn
+  processing, user-interface writes, intelligence/minor races, save/load and per-program state, computer
+  empires, order application, reachable asserts, network transport and checksums, fleets and movement,
+  diplomacy and random events, colonization, invasion, bombardment, outposts and starbases) found no further
+  candidates beyond the fixes listed above.
+- Stations (outposts, starbases) are not part of any turn checksum, so a station-only divergence would show
+  up late. No cause for such a divergence was found; not changed.
 - Fixes A–D remove proven ordering races and transport problems; whether they caused disconnects in
   real internet games cannot be proven without real network conditions.
 - Mods that change game rules (e.g. the "chasing ships away" patch) are a separate source of desyncs.
