@@ -1,4 +1,4 @@
-NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law/shipyard/refit desyncs, heap race, tactical combat crash, monster countdown)
+NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law/shipyard/refit desyncs, heap race, tactical combat crash, monster state, tactical AUTO)
 AUTHOR: Claude (Anthropic) for Stephan, 2026-10-15
 DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.
 DESC: B) orders/queues of a faster player that arrive while this machine is still calculating
@@ -25,6 +25,10 @@ DESC: T) manual tactical combat: a ship with an attack order but no target no lo
 DESC:    "aissault.c line 562" (seen against the Edo Guardian); the ship holds position for that round.
 DESC: W) the random-monster countdown is reset when a game is started or loaded; a player who restarted
 DESC:    the game after a crash used to get monsters on other turns than the rest (sync error).
+DESC: W2) the same reset also covers the monster name counters (ship checksum) and the economy
+DESC:    checksum buffer, which overflowed when a larger galaxy was loaded after a smaller game.
+DESC: U) the AUTO box in manual tactical combat orders only your own ships, no longer those of an
+DESC:    allied computer empire (the other machines let the computer order them -> battle.c line 909).
 DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.
 DESC: Uses the free code area 0x516e60-0x5171b0 (file 0x116260) and .bss 0x6896e0-0x6897b8.
 DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.
@@ -91,6 +95,9 @@ TAG: fix
 
 >> 0x061930 0C F1 FF FF
 << 0x061930 2C 4D 0B 00
+
+>> 0x07398a E2 30 00
+<< 0x07398a C2 2D 0A
 
 >> 0x0fcd30 90 9D F5 FF
 << 0x0fcd30 5C 98 01 00
@@ -268,12 +275,49 @@ TAG: fix
 >> 0x1166f0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 >> 0x116700 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 >> 0x116710 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
->> 0x116720 00
+>> 0x116720 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116730 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116740 00 00 00 00 00 00 00 00
 << 0x1166e0 8A 84 24 30 01 00 00 3C 05 73 0C 3A 05 2A 2B 5A
 << 0x1166f0 00 0F 85 06 32 F3 FF 89 EB 89 C8 0F BF 16 E8 1D
 << 0x116700 C5 F4 FF 89 C8 E8 92 08 F4 FF E9 EE 31 F3 FF 00
 << 0x116710 89 15 E4 FD 58 00 C7 05 B0 FD 58 00 4B 00 00 00
-<< 0x116720 C3
+<< 0x116720 C7 05 D4 FD 58 00 E9 00 00 00 C7 05 DC FD 58 00
+<< 0x116730 01 00 00 00 60 A1 20 FD 58 00 85 C0 74 0F E8 F1
+<< 0x116740 64 00 00 C7 05 20 FD 58
+
+>> 0x11674d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11675d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11676d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11677d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11678d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11679d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1167ad 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1167bd 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1167cd 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1167dd 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1167ed 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1167fd 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11680d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11681d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11682d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x11683d 00
+<< 0x11674d 61 C3 00 55 89 E5 81 EC 00 01 00 00 50 51 52 53
+<< 0x11675d 56 57 8D BD 00 FF FF FF 31 C0 B9 40 00 00 00 F3
+<< 0x11676d AB 8B 35 64 78 59 00 31 D2 3B 15 14 2B 60 00 7D
+<< 0x11677d 6C 81 FA 00 08 00 00 7D 64 F6 86 B0 01 00 00 01
+<< 0x11678d 74 52 0F B7 86 DC 01 00 00 0F B6 0D 2A 2B 5A 00
+<< 0x11679d 39 C8 74 40 8B 86 78 01 00 00 83 F8 01 75 19 F6
+<< 0x1167ad 86 0C 02 00 00 02 75 2C 80 8E 0C 02 00 00 02 0F
+<< 0x1167bd AB 95 00 FF FF FF EB 1C 83 F8 05 75 17 F6 86 30
+<< 0x1167cd 03 00 00 01 75 0E 80 8E 30 03 00 00 01 0F AB 95
+<< 0x1167dd 00 FF FF FF 81 C6 C8 03 00 00 42 EB 8C 5F 5E 5B
+<< 0x1167ed 5A 59 58 E8 7B 02 F6 FF 60 8B 35 64 78 59 00 31
+<< 0x1167fd D2 3B 15 14 2B 60 00 7D 33 81 FA 00 08 00 00 7D
+<< 0x11680d 2B 0F A3 95 00 FF FF FF 73 19 83 BE 78 01 00 00
+<< 0x11681d 01 75 09 80 A6 0C 02 00 00 FD EB 07 80 A6 30 03
+<< 0x11682d 00 00 FE 81 C6 C8 03 00 00 42 EB C5 61 89 EC 5D
+<< 0x11683d C3
 
 >> 0x14cf13 6A FF 57 2E FF 15 C0 45 57 00 3D 02 01 00 00 74
 >> 0x14cf23 09

@@ -604,13 +604,118 @@ def apply(p):
     # process counted down to: monsters then appear on one machine only -> sync error (different seed).
     # Reproduced: different counters on the turn-103 save -> mismatch in the same turn. FUN_00450020 resets
     # the Borg/monster state on new game and on loading (traced on an MP client); it now resets the countdown.
+    # The same function also resets two per-process monster name counters ([0x58fdd4] = 233, [0x58fddc] = 1; the
+    # names are part of the ship checksum) and drops the economy-checksum scratch buffer [0x58fd20] of
+    # FUN_0043db00, which is allocated once for the system count of the first game and never resized (a larger
+    # galaxy loaded later in the same process overran it). It is allocated again on its next use.
     w_reset = put('monreset', f'''
         mov dword ptr [0x58fde4], edx
         mov dword ptr [0x58fdb0], 0x4b
+        mov dword ptr [0x58fdd4], 233
+        mov dword ptr [0x58fddc], 1
+        pushad
+        mov eax, dword ptr [0x58fd20]
+        test eax, eax
+        jz nobuf
+        call 0x51d834
+        mov dword ptr [0x58fd20], 0
+    nobuf:
+        popad
         ret
     ''')
     # 0x450038: mov [0x58fde4], edx (6 bytes)
     p.patch(0x450038, '8915e4fd5800', call_rel(0x450038, w_reset) + b'\x90')
+
+    # ---- Fix U: tactical AUTO gives orders to the local player's units only -----------------------------
+    # The AUTO checkbox in a manual tactical combat ([0x5cb254], local UI state) makes FUN_00474490 call the
+    # side-wide combat AI FUN_00477670 (0x474589). That AI orders every unit of the side that has no orders yet,
+    # including the ships of an allied AI empire, and marks them "ordered" (+0x20c bit 1, stations +0x330 bit 0).
+    # Only the local unit's order is sent (message 0x6e); the other computers let the real AI order the allied
+    # ships, with combat RNG draws -> battle checksum assert (battle.c line 909, eventListCRC) -> "Disconnected".
+    # Found by a static code review (fits an unexplained player report of battle.c:909 late in a game).
+    # Around that call all active units of other owners are marked "ordered" temporarily; exactly the marks set
+    # here are removed afterwards (bitmap on the stack, up to 2048 units).
+    autoown = put('autoown', f'''
+        push ebp
+        mov ebp, esp
+        sub esp, 0x100
+        push eax
+        push ecx
+        push edx
+        push ebx
+        push esi
+        push edi
+        lea edi, [ebp-0x100]
+        xor eax, eax
+        mov ecx, 0x40
+        rep stosd
+        mov esi, dword ptr [0x597864]
+        xor edx, edx
+    mark:
+        cmp edx, dword ptr [0x602b14]
+        jge marked
+        cmp edx, 0x800
+        jge marked
+        test byte ptr [esi+0x1b0], 1
+        jz mnext
+        movzx eax, word ptr [esi+0x1dc]
+        movzx ecx, byte ptr [0x5a2b2a]
+        cmp eax, ecx
+        je mnext
+        mov eax, dword ptr [esi+0x178]
+        cmp eax, 1
+        jne mstation
+        test byte ptr [esi+0x20c], 2
+        jnz mnext
+        or byte ptr [esi+0x20c], 2
+        bts dword ptr [ebp-0x100], edx
+        jmp mnext
+    mstation:
+        cmp eax, 5
+        jne mnext
+        test byte ptr [esi+0x330], 1
+        jnz mnext
+        or byte ptr [esi+0x330], 1
+        bts dword ptr [ebp-0x100], edx
+    mnext:
+        add esi, 0x3c8
+        inc edx
+        jmp mark
+    marked:
+        pop edi
+        pop esi
+        pop ebx
+        pop edx
+        pop ecx
+        pop eax
+        call 0x477670
+        pushad
+        mov esi, dword ptr [0x597864]
+        xor edx, edx
+    clear:
+        cmp edx, dword ptr [0x602b14]
+        jge cleared
+        cmp edx, 0x800
+        jge cleared
+        bt dword ptr [ebp-0x100], edx
+        jnc cnext
+        cmp dword ptr [esi+0x178], 1
+        jne cstation
+        and byte ptr [esi+0x20c], 0xfd
+        jmp cnext
+    cstation:
+        and byte ptr [esi+0x330], 0xfe
+    cnext:
+        add esi, 0x3c8
+        inc edx
+        jmp clear
+    cleared:
+        popad
+        mov esp, ebp
+        pop ebp
+        ret
+    ''')
+    p.patch(0x474589, call_rel(0x474589, 0x477670), call_rel(0x474589, autoown))
 
     out["code_end"] = code
     return out
