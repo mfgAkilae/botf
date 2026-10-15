@@ -113,6 +113,7 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | colonize without colony ship (`tools/coltest.sh`) | original / v1.6 | new 2-player game | both games crash in turn 1 / 7 turns in sync (4 colonizations) |
 | war5_v15c/d: 5 humans, manual tactical combat for all races | v1.5.0 | 160 → 200 | no break |
 | war5_q / col_q | v1.6 candidate | 200 → 220 / 20 → 31 | no break |
+| war5_v16: 5 humans, manual tactical combat for all races | v1.6.0 | 220 → 370 | no break (66 tactical combat rounds) |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
 sends its own state to everybody). A save made after the problem does not show the problem any more.
