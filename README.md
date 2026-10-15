@@ -48,6 +48,8 @@ session. Player reports of the late-game bug almost always show the same signatu
 | **I** | **Removing and re-adding martial law.** The owner restarts the martial-law turn counter; on the other machines the delete request clears only 2 of its 4 bytes, so their counter keeps running and the system's morale rises a turn early. | Reproduced on the original from a turn-103 save: sync error, `crcSolarBld` only. | The delete request clears the whole counter. |
 | **H** | **Losing a shipyard while it builds a ship** (scrap order, bombardment, unrest). Every machine cancels the ship, but only the owner starts the next queue item right away, before the production step of the same turn. The owner's next build therefore gets one turn of progress more and finishes a turn early. | Reproduced on the original from a turn-103 save (`tools/r2test.sh`: scrap the Union Shipyard at Cardassia): sync error at turn 106 (`crcSolarBld`). | The restart is queued and runs after the production step on every machine, as the game already does for conquered systems. |
 | **J** | **Research makes a ship class obsolete** while a system builds it. Every machine replaces the build order, but each one numbers the new order with its own counter. The owner then sends its order too, and the other machines keep both: ships are built twice. | Reproduced on the original (`tools/r4inject.py` runs the refit inside a normal turn on all five games): sync error at turn 106. | Only the owner creates the replacement order; the others receive it with the next orders message. |
+| **T** | **Manual tactical combat: an attack order without a target ends the game.** The combat AI for a ship with order Charge/Assault asserts that its target is a unit (`aissault.c` line 562) before it checks for "no target". The tactical-combat agent hit it against the Edo Guardian: the Romulan player's game wrote `Crash.log` and quit, the others saw "Disconnected". | Reproduced deterministically from the turn-293 save (`tools/tacedo.sh`: send the task force into Rubicun, fight, end the first combat round). | Both asserts (ship and monster) take the existing no-target branch: the unit holds its position for that round. |
+| **W** | **Random-monster countdown belongs to the program, not to the game.** It starts at 75 when `trek.exe` starts and is never reset or saved. After a crash the restarted player has 75, the others (who reload the save in their running game) have their own value: monsters appear on one machine only. | Instance A started with a different countdown on the turn-103 save: sync error at turn 105 on the original, in sync with W. Found by a static code review. | The countdown is reset when a game is started or loaded (the same function already resets the Borg state). |
 | E | Turn processing itself sends "delete order" requests that the receiver matches only by a sequence number. These numbers are assigned per machine and drift apart, so a request could hit an unrelated order on one machine. | Reproduced only artificially (injected collision); not observed in natural games. | Turn processing no longer sends these requests (every machine deletes the order itself anyway). |
 | A | Build queues (`0x74`) were sent after the orders (`0x68`); the last player's orders already start the turn on the other machines, so queues could be applied in the middle of the calculation. | Trace in the test bed. | `0x74` is sent before `0x68`. |
 | B | Orders of a faster player for the *next* turn were applied in the middle of a slower machine's turn calculation. | Trace in the test bed. | Held back while a turn is being calculated, delivered afterwards in order. |
@@ -92,6 +94,9 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | heap stress, `--heapstress 4` (2503) | with S | 200 → 250 | no crash, in sync |
 | shipyard scenario (`tools/r2test.sh`) | original / with H | 103 → 108 | sync error at 106 / in sync |
 | refit scenario (`tools/r4inject.py`) | original / with J | 103 → 107 | sync error at 106 / in sync |
+| Edo Guardian combat (`tools/tacedo.sh`) | original / with T | 293, first combat round | `assault.c:562` crash / no crash, in sync to 295 |
+| monster countdown (A started with 2) | original / with W | 103 → 107 | sync error at 105 / in sync |
+| war5_tac2..5: manual tactical combat, 5 humans | v1.2.0 + T | 280 → 390 | no break; ~80 tactical combat rounds (B, C, E), monsters, wars |
 | war5_01: new small spiral galaxy, 5 humans | v1.2.0 | 0 → 300 | no break: per player ~250 ships ordered, ~100 purchases, up to 400 fleet courses and 200 missions, ~100 diplomatic actions on three players, 16 declarations of war, monsters and random events on |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
@@ -119,7 +124,11 @@ sends its own state to everybody). A save made after the problem does not show t
   (`tools/r1test.sh`, `tools/r1force.py`) the build still completed in the same turn everywhere, so no
   sync error. Not changed.
 - Not exercised by the agents yet: intelligence and research allocation (their sliders did not react to
-  simulated input), manual tactical combat (the test games use automatic combat), invasions.
+  simulated input), invasions.
+- Static review candidates not fixed yet: the tactical-combat AUTO checkbox also gives orders to an allied
+  AI empire's ships on that one machine (possible `battle.c` eventListCRC crash in alliance battles); option
+  changes made while a turn is processed are not sent; a player dropping out is handled at different points
+  on each machine (needs three or more humans).
 - Fixes A–D remove proven ordering races and transport problems; whether they caused disconnects in
   real internet games cannot be proven without real network conditions.
 - Mods that change game rules (e.g. the "chasing ships away" patch) are a separate source of desyncs.

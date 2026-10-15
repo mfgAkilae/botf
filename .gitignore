@@ -5,6 +5,8 @@
 !saves/nat5_bug_1402_t320/*.sav
 !saves/five_1201_t103/*.sav
 !saves/nat5_bug_1301_t200/*.sav
+!saves/tac_t293/*.sav
+!saves/war5_01_t280/*.sav
 *.res
 export_en/
 ghidra_proj/
@@ -17,6 +19,8 @@ saves/*
 !saves/nat5_bug_1402_t320/
 !saves/five_1201_t103/
 !saves/nat5_bug_1301_t200/
+!saves/tac_t293/
+!saves/war5_01_t280/
 # per-machine test bed state
 tools/harness_state.json
 tools/window_layout.json

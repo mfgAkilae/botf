@@ -324,8 +324,10 @@ def apply(p):
     ''')
     for site in (0x402232, 0x4023ca, 0x402509):
         p.patch(site, '2eff15ec455700', call_rel(site, dwrap) + b'\x90\x90')
+    d_proddone = data + 0x11c   # Fix H: 1 once this turn's production step ran (cleared at turn start)
     pstart = put('pstart', f'''
         mov dword ptr [{BUSY:#x}], 1
+        mov dword ptr [{d_proddone:#x}], 0
         push eax
         mov eax, dword ptr [{d_depth:#x}]
         mov dword ptr [{d_depth0:#x}], eax
@@ -463,16 +465,20 @@ def apply(p):
     # Shipyard at Cardassia -> mismatch at turn 106. FUN_00445840 has the same pattern for an empty queue
     # (0x4459cd). The developers already defer this for conquered systems (FUN_004618c0 list, processed by
     # FUN_00461640 after the production loop); these two paths were missed.
-    # Now, in MP while busy == 1, both restarts are queued and run right after FUN_00461640 (0x46252f).
+    # Now, in MP while busy == 1 and before this turn's production step, both restarts are queued and run right
+    # after FUN_00461640 (0x46252f). Shipyard losses after the production step (sabotage, research) restart at
+    # once as before: the snapshot is already taken then.
     d_rearm_n = data + 0xd8
     d_rearm = data + 0xdc                  # MAX_REARM * (word system, word kind)
     MAX_REARM = 16
-    assert d_rearm + MAX_REARM * 4 <= DATA_CAVE_END
+    assert d_rearm + MAX_REARM * 4 <= d_proddone and d_proddone + 4 <= DATA_CAVE_END
     MP = 0x5a2924
     rearm_a = put('rearm_a', f'''
         cmp dword ptr [{MP:#x}], 0
         je orig
         cmp dword ptr [{BUSY:#x}], 1
+        jne orig
+        cmp dword ptr [{d_proddone:#x}], 0
         jne orig
         mov eax, dword ptr [{d_rearm_n:#x}]
         cmp eax, {MAX_REARM}
@@ -492,6 +498,8 @@ def apply(p):
         cmp dword ptr [{MP:#x}], 0
         je orig
         cmp dword ptr [{BUSY:#x}], 1
+        jne orig
+        cmp dword ptr [{d_proddone:#x}], 0
         jne orig
         movzx eax, byte ptr [esi+0x4c]
         cmp eax, 5
@@ -546,6 +554,7 @@ def apply(p):
         jmp next
     done:
         mov dword ptr [{d_rearm_n:#x}], 0
+        mov dword ptr [{d_proddone:#x}], 1
         popad
         ret
     ''')
@@ -577,6 +586,31 @@ def apply(p):
     ''')
     p.patch(0x44a4ea, '89eb89c80fbf16' + call_rel(0x44a4f1, 0x463820).hex() + '89c8' + call_rel(0x44a4f8, 0x457b9c).hex(),
             jmp_rel(0x44a4ea, refit) + b'\x90' * 14)
+
+    # ---- Fix T: tactical combat crash "ai\assault.c line 562 entity->ship.shipData.targetIsEntity" ---------
+    # Orders 7, 8 and 10 in the tactical view clear a ship's target (0x4972f7: flag +0x20c bit 3 off, target
+    # +0x200 = -1). If the player then gives order 1 or 2 without picking a new target, the combat step runs
+    # FUN_00567c30 (0x5543f6 dispatch), which asserts that the target is an entity before it checks for -1:
+    # the game ends with Crash.log and everybody else sees "Disconnected". Found by the tactical-combat agent
+    # (Romulan ship vs the Edo Guardian, turn 293). Both asserts (ship 0x567c88, monster 0x567d45) now take the
+    # existing "no target" branch at 0x567d6f: the unit keeps its position for this combat round.
+    for site, old in ((0x567c88, 'bb10a45800'), (0x567d45, 'bb38a45800')):     # mov ebx, <assert text>
+        p.patch(site, old, jmp_rel(site, 0x567d6f))
+
+    # ---- Fix W: monster spawn countdown is reset on new game / load ------------------------------------
+    # The random-monster countdown [0x58fdb0] (FUN_0044cbe0, called every turn by the incident step) starts at
+    # 0x4b when trek.exe starts and is never reset or saved. A player who restarts the game after a crash or
+    # "Disconnected" has 75 while the others, who reload the save in their running game, have whatever their
+    # process counted down to: monsters then appear on one machine only -> sync error (different seed).
+    # Reproduced: different counters on the turn-103 save -> mismatch in the same turn. FUN_00450020 resets
+    # the Borg/monster state on new game and on loading (traced on an MP client); it now resets the countdown.
+    w_reset = put('monreset', f'''
+        mov dword ptr [0x58fde4], edx
+        mov dword ptr [0x58fdb0], 0x4b
+        ret
+    ''')
+    # 0x450038: mov [0x58fde4], edx (6 bytes)
+    p.patch(0x450038, '8915e4fd5800', call_rel(0x450038, w_reset) + b'\x90')
 
     out["code_end"] = code
     return out

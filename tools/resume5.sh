@@ -62,7 +62,7 @@ attempt() {
   rm -f "$TEST"/?/dxwnd.lockfile.tmp
   tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath '$(cygpath -w "$DPLAY/dplaysvr.exe")' -WorkingDirectory '$(cygpath -w "$DPLAY")' -WindowStyle Hidden"
   for x in A B C D E; do
-    cp "$EXE" $TEST/$x/trek.exe; : > $TEST/$x/Crash.log
+    X_EXE=EXE_$x; cp "${!X_EXE:-$EXE}" $TEST/$x/trek.exe; : > $TEST/$x/Crash.log   # EXE_A=... : other exe for one instance
     cp "$SAV/auto_$x.sav" $TEST/$x/auto.sav
   done
   for x in A B C D E; do

@@ -139,6 +139,10 @@ def main():
                 else:
                     # any other exception (access violation, ...): log it, the game handles it or dies
                     cont = DBG_EXCEPTION_NOT_HANDLED
+                    if ec == 0xC0000008:
+                        # STATUS_INVALID_HANDLE is raised by CloseHandle only while a debugger is attached; without
+                        # one the call just fails. Continue as the game would run normally (it closes some files twice).
+                        cont = DBG_CONTINUE
                     try:
                         th = k32.OpenThread(0x1F03FF, False, ev.dwThreadId)
                         ctx = WOW64_CONTEXT(); ctx.ContextFlags = 0x10007
