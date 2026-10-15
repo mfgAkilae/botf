@@ -142,6 +142,12 @@ def apply(p):
         je park_it
         cmp ax, 0x74
         je park_it
+        cmp ax, 0x85
+        je park_it
+        cmp ax, 0x72
+        je park_it
+        cmp ax, 0x73
+        je park_it
         jmp go
     park_it:
         cmp dword ptr [{d_count:#x}], {MAX_DEFER - 1}
@@ -716,6 +722,57 @@ def apply(p):
         ret
     ''')
     p.patch(0x474589, call_rel(0x474589, 0x477670), call_rel(0x474589, autoown))
+
+    # ---- Fix L: options message 0x85 is parked while a turn is processed -----------------------------------
+    # The host sends 0x85 whenever it closes the options dialog while idle. A client that is still processing
+    # the turn and pumps messages (e.g. in a dialog) handled it at once: FUN_0050d390 asserts busy != 1
+    # (conninit.c line 617) -> Crash.log, "Disconnected"; without the assert the client would switch combat
+    # mode / random events in the middle of the turn. The Fix B dispatcher (above) now parks 0x85 like
+    # 0x68/0x74 and replays it in arrival order when processing ends. Found by static code reviews (audit R6).
+    # The same holds for the save-game messages 0x72/0x73 (host loads a multiplayer save): a client still
+    # processing a turn replaced the whole game state under its running turn pipeline (FUN_0050dd30 /
+    # FUN_0050f830 -> FUN_004387f0); they are parked too and applied once the turn has finished.
+
+    # ---- Fix K: the turn timer does not end the turn from inside a dialog ---------------------------------
+    # With a turn time limit, the timer callback (0x4b9e50) runs from every message pump, also the one of a
+    # modal dialog such as "delete current build?" (FUN_00500350 from FUN_004fd7b8). On expiry it sends this
+    # player's orders (FUN_00458120 at 0x4b9f74); when the player then confirms the dialog, the handler kills
+    # and adds orders that were never sent -> sync error. The expiry is now deferred while a DispatchMessage
+    # is in progress (nesting depth counter of Fix E) and taken on a later tick in the main loop.
+    tlim = put('timerguard', f'''
+        cmp dword ptr [{d_depth:#x}], 0
+        jne later
+        mov dword ptr [0x59305c], 1
+        jmp 0x4b9f74
+    later:
+        jmp 0x4b9ec0
+    ''')
+    # 0x4b9f6a: mov dword ptr [0x59305c], 1 (10 bytes)
+    p.patch(0x4b9f6a, 'c7055c30590001000000', jmp_rel(0x4b9f6a, tlim) + bytes(5 * [0x90]))
+
+    # ---- Fix V: a remote delete request only matches an order of the requesting empire ------------------
+    # Delete requests (type 9, FUN_00457940) carry only the target's sequence number; the matcher of mode 2
+    # (0x457b50) compared nothing else. Sequence numbers are per-computer counters, so a receiver that does
+    # not have the target (e.g. a build started this turn, bug M) could delete an unrelated order with the same
+    # number, and the Fix M fallback would not run. Players only delete orders of their own empire, and the
+    # request is created with the local empire (0x45799e): the matcher now also requires the same empire and
+    # never matches another delete request. Found by a static code review.
+    match9 = put('match9', f'''
+        mov ebx, dword ptr [eax]
+        cmp ebx, dword ptr [ecx]
+        jne no
+        cmp dword ptr [eax+0x10], 9
+        je no
+        mov ebx, dword ptr [edx]
+        mov bx, word ptr [ebx+8]
+        cmp bx, word ptr [eax+8]
+        jne no
+        jmp 0x457b62
+    no:
+        jmp 0x457b5d
+    ''')
+    # 0x457b57: mov ebx,[eax] / cmp ebx,[ecx] / je 0x457b62 (6 bytes)
+    p.patch(0x457b57, '8b183b1974' + p.read(0x457b5c, 1).hex(), jmp_rel(0x457b57, match9) + bytes([0x90]))
 
     out["code_end"] = code
     return out

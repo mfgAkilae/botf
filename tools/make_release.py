@@ -44,7 +44,7 @@ def main():
 
     # ---- community .patch file -----------------------------------------------------------
     lines = [
-        'NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law/shipyard/refit desyncs, heap race, tactical combat crash, monster state, tactical AUTO)',
+        'NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law/shipyard/refit desyncs, heap race, tactical combat crash, monster state, tactical AUTO, held-back options/load, timer, delete requests)',
         'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-15',
         'DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.',
         'DESC: B) orders/queues of a faster player that arrive while this machine is still calculating',
@@ -75,6 +75,10 @@ def main():
         'DESC:    checksum buffer, which overflowed when a larger galaxy was loaded after a smaller game.',
         'DESC: U) the AUTO box in manual tactical combat orders only your own ships, no longer those of an',
         'DESC:    allied computer empire (the other machines let the computer order them -> battle.c line 909).',
+        'DESC: L) messages that change the game while another machine still calculates the turn are held back',
+        'DESC:    until it has finished: host options (no more "conninit.c line 617" crash) and loading a saved game.',
+        'DESC: K) with a turn time limit, the turn is no longer sent while a dialog (e.g. "delete build?") is open.',
+        'DESC: V) a "delete order" request only matches an order of the empire that sent it.',
         'DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.',
         'DESC: Uses the free code area 0x516e60-0x5171b0 (file 0x116260) and .bss 0x6896e0-0x6897b8.',
         'DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.',
