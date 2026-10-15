@@ -68,7 +68,7 @@ attempt() {
   done
   for x in $ALL; do
     $H launch $x "$(cygpath -w "$TEST/$x")"; sleep 6
-    if ! $H wins $x | head -1 | grep -q "800, 600)"; then
+    if ! $H wins $x | grep -q "True, 800, 600)"; then
       echo "instance $x is not windowed 800x600, aborting"
       for y in A B C D E; do $H kill $y >/dev/null 2>&1 || true; done; exit 1
     fi

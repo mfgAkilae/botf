@@ -46,6 +46,8 @@ session. Player reports of the late-game bug almost always show the same signatu
 | **N** | **Deleting a build that was bought.** The game asks "industry invested, delete current build?". On YES it cancels the purchase only on the deleting player's machine. This is the only delete path that does not send a "delete order" request. The other machines keep the purchase and later compute different build costs. | **Occurred naturally** in a scripted 5-player game on the original game at turn 331 (`crcSolarBld` only). Replaying the recorded inputs from the turn-320 save reproduces it exactly. | The delete path sends the request like all others. |
 | **M** | **Deleting a build the turn processing has just started.** When a build completes, the next queue item is started; its order exists only on the owner's machine until the next turn. If the player deletes it right away, the other machines do not know the order, ignore the delete request and keep the invested industry. The next build then completes a turn earlier there. | Reproduced on the original from a turn-103 save: sync error in the following turn. | The delete request carries the system; a machine that does not find the order resets that system's production anyway. |
 | **I** | **Removing and re-adding martial law.** The owner restarts the martial-law turn counter; on the other machines the delete request clears only 2 of its 4 bytes, so their counter keeps running and the system's morale rises a turn early. | Reproduced on the original from a turn-103 save: sync error, `crcSolarBld` only. | The delete request clears the whole counter. |
+| **H** | **Losing a shipyard while it builds a ship** (scrap order, bombardment, unrest). Every machine cancels the ship, but only the owner starts the next queue item right away, before the production step of the same turn. The owner's next build therefore gets one turn of progress more and finishes a turn early. | Reproduced on the original from a turn-103 save (`tools/r2test.sh`: scrap the Union Shipyard at Cardassia): sync error at turn 106 (`crcSolarBld`). | The restart is queued and runs after the production step on every machine, as the game already does for conquered systems. |
+| **J** | **Research makes a ship class obsolete** while a system builds it. Every machine replaces the build order, but each one numbers the new order with its own counter. The owner then sends its order too, and the other machines keep both: ships are built twice. | Reproduced on the original (`tools/r4inject.py` runs the refit inside a normal turn on all five games): sync error at turn 106. | Only the owner creates the replacement order; the others receive it with the next orders message. |
 | E | Turn processing itself sends "delete order" requests that the receiver matches only by a sequence number. These numbers are assigned per machine and drift apart, so a request could hit an unrelated order on one machine. | Reproduced only artificially (injected collision); not observed in natural games. | Turn processing no longer sends these requests (every machine deletes the order itself anyway). |
 | A | Build queues (`0x74`) were sent after the orders (`0x68`); the last player's orders already start the turn on the other machines, so queues could be applied in the middle of the calculation. | Trace in the test bed. | `0x74` is sent before `0x68`. |
 | B | Orders of a faster player for the *next* turn were applied in the middle of a slower machine's turn calculation. | Trace in the test bed. | Held back while a turn is being calculated, delivered afterwards in order. |
@@ -61,8 +63,10 @@ longer a game runs, the more likely one machine drops out.
 ## Verification
 
 Test bed: five game instances on one PC, each with its own human empire, connected over DirectPlay.
-Five independent player agents (`tools/player.py`) play simultaneously like humans: fleets, production,
-buying, labour, re-planning builds, clicking around while waiting. An observer (`tools/observer.py`)
+Five independent player agents (`tools/player.py`) play simultaneously like humans: production, buying,
+labour, re-planning builds, diplomacy (gifts, friendship, affiliation, membership, declarations of war),
+fleets (the agent finds its own task forces on the galaxy map by the race emblem, sets courses and gives
+missions such as attack, raid, colonize, terraform, train crew), clicking around while waiting. An observer (`tools/observer.py`)
 compares all games and the heartbeat checksums after every turn and attaches a debugger to catch
 crashes.
 
@@ -86,6 +90,9 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | nat5_fixs_2301 | v1.1.0 (with S), same save | 200 → 360 | no break, no heap anomaly (two players eliminated on the way) |
 | heap stress, `--heapstress 4` (2502, 2504) | without S | 200 → 203 / never reached the game | **all 5 games crashed within 3 turns**; in 2504 six crashes while loading the save or in the lobby |
 | heap stress, `--heapstress 4` (2503) | with S | 200 → 250 | no crash, in sync |
+| shipyard scenario (`tools/r2test.sh`) | original / with H | 103 → 108 | sync error at 106 / in sync |
+| refit scenario (`tools/r4inject.py`) | original / with J | 103 → 107 | sync error at 106 / in sync |
+| war5_01: new small spiral galaxy, 5 humans | v1.2.0 | 0 → 300 | no break: per player ~250 ships ordered, ~100 purchases, up to 400 fleet courses and 200 missions, ~100 diplomatic actions on three players, 16 declarations of war, monsters and random events on |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
 sends its own state to everybody). A save made after the problem does not show the problem any more.
@@ -107,9 +114,12 @@ sends its own state to everybody). A save made after the problem does not show t
     critical section. The other pools the receive thread uses have `0x8002` (serialized).
   - Tracer note: a breakpoint that is removed for a single step lets other threads pass unseen, which
     produces fake double frees. `ktrace.py` therefore emulates the instruction at the heap breakpoints.
-- Candidates from static analysis that are not tested yet (see `docs/static_audit.md`): losing a
-  shipyard while a ship is being built, the morale "production boost" event at morale ≥ 192, ship-class
-  refit orders.
+- Static audit candidate R1 (morale "production boost" event, `docs/static_audit.md`): the owner and the
+  other machines really compute different values in that event, but in seven forced scenarios
+  (`tools/r1test.sh`, `tools/r1force.py`) the build still completed in the same turn everywhere, so no
+  sync error. Not changed.
+- Not exercised by the agents yet: intelligence and research allocation (their sliders did not react to
+  simulated input), manual tactical combat (the test games use automatic combat), invasions.
 - Fixes A–D remove proven ordering races and transport problems; whether they caused disconnects in
   real internet games cannot be proven without real network conditions.
 - Mods that change game rules (e.g. the "chasing ships away" patch) are a separate source of desyncs.
@@ -171,6 +181,9 @@ All paths are relative to the repository root; the defaults can be changed with 
 
    The agents click fixed screen positions for each race and need the home-system position on the
    galaxy map (`--home X,Y` in `runlong5.sh`); adjust these for a new galaxy.
+   Fleet play needs one race emblem per player cut from your own screenshots of the galaxy map
+   (MILITARY view): `tpl/emblem/<A..E>.png` (22x20, normal map) and `tpl/emblem/<A..E>_small.png` (14x12,
+   large map); `tpl/` is not part of the repository because it contains game graphics.
 
 7. **Heap race (bug S)** with the stress builds, from the turn-200 save of the 5-player game:
 

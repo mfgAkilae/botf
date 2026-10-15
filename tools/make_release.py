@@ -44,8 +44,8 @@ def main():
 
     # ---- community .patch file -----------------------------------------------------------
     lines = [
-        'NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law desyncs, heap race)',
-        'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-14',
+        'NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law/shipyard/refit desyncs, heap race)',
+        'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-15',
         'DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.',
         'DESC: B) orders/queues of a faster player that arrive while this machine is still calculating',
         'DESC:    the turn are parked and handled after the calculation instead of in the middle of it.',
@@ -63,6 +63,10 @@ def main():
         'DESC: S) the memory manager now locks its default heap: the network thread and the game used it at',
         'DESC:    the same time, which could hand out one memory block twice -> a game quit silently and the',
         'DESC:    others saw "Disconnected", mostly in long games (crash while loading graphics or sounds).',
+        'DESC: H) losing a shipyard (scrapped, bombarded, unrest) no longer lets the owner restart production a turn',
+        'DESC:    ahead of the other machines (the owner finished the next build early -> sync error).',
+        'DESC: J) a ship class made obsolete by research no longer creates a second copy of the replacement build',
+        'DESC:    order on the other machines (they built ships twice -> sync error).',
         'DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.',
         'DESC: Uses the free code area 0x516e60-0x5171b0 (file 0x116260) and .bss 0x6896e0-0x6897b8.',
         'DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.',

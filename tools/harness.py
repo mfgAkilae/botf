@@ -237,6 +237,27 @@ def place(name, pid, wait=20):
         time.sleep(0.5)
 
 
+def hold(name, pid, seconds=120):
+    # keep the game window at its layout position from the moment it appears: dxwnd moves it again when the
+    # game switches modes (intro, main menu, lobby, loading); only windowed-size windows are touched
+    try:
+        lay = json.load(open(LAYOUT)).get(name)
+    except (OSError, ValueError):
+        lay = None
+    if not lay:
+        return
+    r = wintypes.RECT(); t0 = time.time()
+    while time.time() - t0 < seconds and pid_alive(pid):
+        ws = [w for w in windows_of(pid) if w[3]]
+        if ws:
+            hw = max(ws, key=lambda w: w[4] * w[5])[0]
+            user32.GetWindowRect(hw, ctypes.byref(r))
+            w, h = r.right - r.left, r.bottom - r.top
+            if (r.left, r.top) != (lay[0], lay[1]) and abs(w - lay[2]) < 40 and abs(h - lay[3]) < 40:
+                user32.SetWindowPos(hw, 0, lay[0], lay[1], 0, 0, 0x0001 | 0x0004 | 0x0010 | 0x0400)
+        time.sleep(0.1)
+
+
 def main(argv):
     st = load_state()
     cmd = argv[0]
@@ -248,7 +269,13 @@ def main(argv):
         st[name] = p.pid
         save_state(st)
         print('pid', p.pid)
+        # detached watcher: places the window as soon as it opens and keeps it there while the game starts
+        subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), 'hold', name, str(p.pid)],
+                         creationflags=0x00000008 | 0x00000200, close_fds=True)
         place(name, p.pid)
+        return
+    if cmd == 'hold':
+        hold(argv[1], int(argv[2]), float(argv[3]) if len(argv) > 3 else 120)
         return
     if cmd == 'place':
         place(argv[1], st[argv[1]], wait=2)

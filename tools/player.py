@@ -39,25 +39,33 @@ def log(*a):
 
 GT = [(320, 437), (430, 449), (528, 437), (605, 449), (697, 437)]   # galaxy-map tabs: overlay, economic, events, military, map
 LAYOUT = {   # per race UI (game coordinates 800x600); orders=None: fleets only move, no mission screen
-    'A': dict(qhead=(638, 270), turn=(163, 33), home=(540, 258), tfx=120, tfy=(300, 345, 385), orders=(100, 568),
+    'A': dict(dip=dict(races=(80, 474, 16), propose=(125, 378), acts=[(400, 27), (400, 54), (400, 81), (630, 27), (630, 54), (630, 81)], send=(688, 378), plus=(505, 228)),
+              qhead=(638, 270), turn=(163, 33), home=(540, 258), tfx=120, tfy=(300, 345, 385), orders=(100, 568),
               missions=[(285, 258), (285, 330), (285, 372), (430, 330), (430, 372), (285, 397)],
               tabs={'build': (94, 150), 'ships': (94, 178), 'prod': (94, 94)}, buy=(640, 198),
               arrows=((370, 568), (100, 170, 238, 308, 376)), auto=(640, 240), systems=(320, 20),
-              syslist=(300, 111, 18), buildlist=113, gtabs=GT),
+              syslist=(300, 111, 18), buildlist=113, mapbtn=((610, 304), (625, 328)), gtabs=GT),
     'B': dict(qhead=(638, 280), turn=(110, 22), home=(522, 250), tfx=140, tfy=(305, 345, 385), orders=(110, 563),
               missions=[(545, 268), (550, 294), (390, 369), (370, 394), (340, 419), (330, 444), (310, 519)],
               tabs={'build': (90, 143), 'ships': (90, 171), 'prod': (90, 87)}, buy=(650, 207),
               arrows=((375, 582), (104, 175, 246, 317, 388)), auto=(668, 255), systems=(310, 22),
-              syslist=(300, 111, 18), buildlist=113, gtabs=GT),
-    'C': dict(qhead=(640, 272), turn=(130, 22), home=(560, 258), tfx=140, tfy=(277, 317, 357), orders=None, missions=[],
+              syslist=(300, 111, 18), buildlist=113, mapbtn=((660, 356), (660, 380)),
+              gtabs=[(320, 437), (430, 449), (528, 437), (600, 440), (697, 437)]),
+    'C': dict(dip=dict(races=(95, 473, 16), propose=(130, 372), acts=[(440, 18), (440, 49), (440, 80), (585, 18), (585, 49), (585, 80)], send=(515, 426), plus=(480, 178)),
+              qhead=(640, 272), turn=(130, 22), home=(560, 258), tfx=140, tfy=(277, 317, 357), orders=(110, 563), missions=[],
+              menu=(280, 327, 20, 12), mapbtn=((627, 362), (627, 384)),
               tabs={'build': (90, 150), 'ships': (90, 178), 'prod': (90, 91)}, buy=(650, 195),
               arrows=((375, 578), (101, 170, 239, 308, 376)), auto=(715, 238), systems=(300, 18),
               syslist=(290, 85, 17), buildlist=87, gtabs=[(310, 444), (415, 444), (510, 444), (605, 444), (700, 444)]),
-    'D': dict(qhead=(648, 262), turn=(150, 22), home=(540, 125), tfx=140, tfy=(272, 312, 352), orders=None, missions=[],
+    'D': dict(qhead=(648, 262), turn=(150, 22), home=(540, 125), tfx=140, tfy=(272, 312, 352), orders=(140, 568),
+              missions=[(370, 369), (370, 391), (370, 413), (370, 436), (370, 459), (370, 481),
+                        (570, 369), (570, 391), (570, 413), (570, 436), (570, 459)], noscrap=[(570, 413)],
               tabs={'build': (85, 149), 'ships': (85, 178), 'prod': (150, 91)}, buy=(655, 195),
               arrows=((358, 573), (101, 173, 243, 320, 390)), auto=(740, 235), systems=(340, 18),
               syslist=(310, 98, 17), buildlist=82, gtabs=[(295, 437), (400, 444), (510, 447), (615, 444), (720, 437)]),
-    'E': dict(qhead=(640, 272), turn=(180, 22), home=(540, 255), tfx=140, tfy=(260, 300, 340), orders=None, missions=[],
+    'E': dict(dip=dict(races=(85, 470, 16), propose=(115, 372), acts=[(365, 20), (365, 48), (365, 76), (645, 20), (645, 48), (645, 76)], send=(440, 407), plus=(538, 173)),
+              qhead=(640, 272), turn=(180, 22), home=(540, 255), tfx=140, tfy=(260, 300, 340), orders=(110, 563), missions=[],
+              menu=(265, 306, 19, 11), mapbtn=((712, 365), (712, 385)), noscrap=[(265, 458)],
               tabs={'build': (115, 160), 'ships': (115, 188), 'prod': (130, 102)}, buy=(690, 196),
               arrows=((368, 570), (107, 176, 243, 315, 381)), auto=(740, 240), systems=(320, 18),
               syslist=(290, 127, 18), buildlist=89, gtabs=[(320, 437), (410, 437), (505, 437), (600, 437), (690, 437)]),
@@ -136,18 +144,76 @@ def browse(n=None):
     return acts
 
 
+EMBLEM = EMBLEM_SMALL = None
+MENU_BOX = (130, 280, 400, 560)                 # area of the fleet orders menu (all races)
+
+
+def mission_rows():
+    # all rows of the fleet orders menu except SCRAP (agents scrapped their own fleets away: no wars)
+    rows = list(L['missions']) if L.get('missions') else []
+    if not rows and L.get('menu'):
+        x, y0, dy, n = L['menu']
+        rows = [(x, y0 + dy * k) for k in range(n)]
+    return [r for r in rows if r not in L.get('noscrap', [])]
+
+
 def fleets():
+    # find own task forces on the galaxy map by the race emblem, select one and either set a course to a
+    # nearby sector or give it a mission from the ORDERS menu (attack, raid, colonize, terraform, scrap, ...)
+    global EMBLEM, EMBLEM_SMALL
+    from PIL import Image, ImageChops, ImageStat
+    import mapfind
+    if EMBLEM is None:
+        EMBLEM = Image.open(os.path.join(TPL, 'emblem', '%s.png' % INST)).convert('RGB')
+        p = os.path.join(TPL, 'emblem', '%s_small.png' % INST)
+        EMBLEM_SMALL = Image.open(p).convert('RGB') if os.path.exists(p) else None
     acts = []
+
+    def view(large):
+        # MAP tab -> SMALL/LARGE MAP, then MILITARY (only that view shows the fleets)
+        if L.get('mapbtn'):
+            click(TABS[4], 0.6); click(L['mapbtn'][1 if large else 0], 0.8)
+        click(TABS[3], 0.5)
+
     key(0x70); nap(0.5)
-    for _ in range(rnd.randint(1, 3)):
-        click(L['home'], 0.6)
-        click((L['tfx'], rnd.choice(L['tfy'])), 0.5)
+    view(False)
+    for _ in range(rnd.randint(1, 4)):
+        if rnd.random() < 0.25:                                # look around: scroll the map a bit
+            k = rnd.choice([0x25, 0x26, 0x27, 0x28])
+            for _ in range(rnd.randint(1, 4)):
+                key(k); nap(0.1)
+            acts.append('scroll%x' % k)
+        icons = mapfind.find(screen(INST, PID, 'pl_map').convert('RGB'), EMBLEM)
+        if not icons and EMBLEM_SMALL is not None and L.get('mapbtn'):
+            # none in view: pick one on the whole-galaxy map; going back centres the small map on it
+            view(True)
+            small = mapfind.find(screen(INST, PID, 'pl_lmap').convert('RGB'), EMBLEM_SMALL, thresh=25, m=2)
+            if small:
+                sx, sy = rnd.choice(small); click((sx, sy), 0.8); acts.append('lmap%d,%d' % (sx, sy))
+            view(False)
+            icons = mapfind.find(screen(INST, PID, 'pl_map').convert('RGB'), EMBLEM)
+            icons.sort(key=lambda p: abs(p[0] - 541) + abs(p[1] - 261))
+            icons = icons[:1]
+        if not icons and HOME_IDX is not None:
+            open_home(); key(0x70); nap(0.6); view(False)                 # selecting the home system centres the map on it
+            icons = mapfind.find(screen(INST, PID, 'pl_map').convert('RGB'), EMBLEM)
+            acts.append('home')
+        if not icons:
+            acts.append('nofleet'); continue
+        x, y = rnd.choice(icons)
+        click((x, y), 0.8); acts.append('fleet%d,%d' % (x, y))     # selects the sector and its first task force
         r = rnd.random()
-        if r < 0.2:                                            # most fleets stay home and defend
-            dst = (rnd.randint(275, 745), rnd.randint(50, 400)); click(dst, 0.5); acts.append('move%d,%d' % dst)
-        elif r < 0.5 and L['orders']:
-            click(L['orders'], 0.9); m = rnd.choice(L['missions']); click(m, 0.6); acts.append('mission%d,%d' % m)
-            esc_safe(); key(0x70); nap(0.4)
+        if r < 0.55:
+            dst = (min(760, max(270, x + 61 * rnd.randint(-4, 4))), min(410, max(50, y + 61 * rnd.randint(-3, 3))))
+            click(dst, 0.6); acts.append('course%d,%d' % dst)
+        elif r < 0.8 and mission_rows():
+            click(L['orders'], 1.0)
+            before = screen(INST, PID, 'pl_menu1').convert('RGB').crop(MENU_BOX)
+            m = rnd.choice(mission_rows()); click(m, 0.8); acts.append('mission%d,%d' % m)
+            after = screen(INST, PID, 'pl_menu2').convert('RGB').crop(MENU_BOX)
+            if sum(ImageStat.Stat(ImageChops.difference(before, after)).mean) / 3 < 8:   # disabled row: menu still open
+                click(L['orders'], 0.8); acts.append('menuclose')
+        key(0x70); nap(0.4)
     return acts
 
 
@@ -182,8 +248,8 @@ def production():
         acts += replan()
     for _ in range(rnd.randint(1, 3)):                         # keep the main world's queue full
         click((300, L['buildlist'] + 16 * rnd.randint(0, 5)), 0.5); acts.append('build')
-    if rnd.random() < 0.5:
-        click(L['tabs']['ships'], 0.6); click((300, L['buildlist'] + 16 * rnd.randint(0, 2)), 0.5); acts.append('ship')
+    for _ in range(rnd.choice([0, 1, 1, 2])):                 # warships: wars need fleets
+        click(L['tabs']['ships'], 0.6); click((300, L['buildlist'] + 16 * rnd.randint(0, 3)), 0.5); acts.append('ship')
     if credits() > 3000 and rnd.random() < (0.7 if credits() > 100000 else 0.3):   # no buying into debt
         click(L['buy'], 0.5); acts.append('buy')
     if rnd.random() < 0.5:                                     # labor at the home system
@@ -206,6 +272,27 @@ def production():
             click(L['tabs']['prod'], 0.6)
             hold((L['arrows'][0][rnd.randint(0, 1)], L['arrows'][1][rnd.randint(0, 4)]), 0.5); acts.append('colonylabor')
     esc_safe(); key(0x70); nap(0.4)
+    return acts
+
+
+def diplomacy():
+    # F5 diplomacy: pick a known race and propose something (friendship / peace, request, gift, affiliation /
+    # alliance, membership / war pact, now and then declare war), add credits to gifts, SEND
+    d = L.get('dip')
+    if not d:
+        return []
+    acts = []
+    key(0x70); nap(0.4); key(0x74); nap(1.2)
+    x, y0, dy = d['races']
+    k = rnd.randint(0, 3); click((x, y0 + dy * k), 0.6); acts.append('race%d' % k)
+    click(d['propose'], 0.6)
+    a = rnd.choices(range(6), weights=[25, 10, 30, 15, 15, 5])[0]
+    click(d['acts'][a], 0.9); acts.append(['friend', 'request', 'gift', 'affil', 'member', 'WAR'][a])
+    if a == 2:
+        for _ in range(rnd.randint(1, 4)):
+            click(d['plus'], 0.2)
+    click(d['send'], 0.9); acts.append('send')
+    key(0x70); nap(0.4)
     return acts
 
 
@@ -290,7 +377,7 @@ def main():
         if HOME_IDX is None:
             find_home()
         pre = swap_new_build()
-        steps = [browse, fleets, production]
+        steps = [browse, fleets, production] + ([diplomacy] if rnd.random() < 0.35 else [])
         rnd.shuffle(steps)
         acts = list(pre)
         for f in steps:

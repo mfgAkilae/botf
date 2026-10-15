@@ -453,5 +453,130 @@ def apply(p):
     # With the flag MemPoolInit (0x52ef48) initializes the pool's critical section itself.
     p.patch(0x5a0a1c, '0080', '0280')
 
+    # ---- Fix H: no owner-only production restart before the production snapshot ----------------------
+    # Losing a shipyard (scrap order, bombardment, unrest) runs FUN_00445840 -> FUN_00445a10 during turn
+    # processing, before the production loop. If the system was building a ship, every machine kills the
+    # order and clears the record, but only the OWNER starts the next queue item again (0x445ab5:
+    # FUN_0046138c, or FUN_004616f0 + FUN_0044d830). That new order is already in the production snapshot,
+    # so the owner gets one turn of progress the others only get a turn later -> the owner finishes the
+    # build a turn early -> sync error (crcSolarBld only). Reproduced: saves/five_1201_t103, scrap the Union
+    # Shipyard at Cardassia -> mismatch at turn 106. FUN_00445840 has the same pattern for an empty queue
+    # (0x4459cd). The developers already defer this for conquered systems (FUN_004618c0 list, processed by
+    # FUN_00461640 after the production loop); these two paths were missed.
+    # Now, in MP while busy == 1, both restarts are queued and run right after FUN_00461640 (0x46252f).
+    d_rearm_n = data + 0xd8
+    d_rearm = data + 0xdc                  # MAX_REARM * (word system, word kind)
+    MAX_REARM = 16
+    assert d_rearm + MAX_REARM * 4 <= DATA_CAVE_END
+    MP = 0x5a2924
+    rearm_a = put('rearm_a', f'''
+        cmp dword ptr [{MP:#x}], 0
+        je orig
+        cmp dword ptr [{BUSY:#x}], 1
+        jne orig
+        mov eax, dword ptr [{d_rearm_n:#x}]
+        cmp eax, {MAX_REARM}
+        jae orig
+        mov word ptr [eax*4 + {d_rearm:#x}], cx
+        mov word ptr [eax*4 + {d_rearm + 2:#x}], 0
+        inc dword ptr [{d_rearm_n:#x}]
+        jmp 0x445a37
+    orig:
+        mov eax, ecx
+        call 0x44dc70
+        jmp 0x445abc
+    ''')
+    # 0x445ab5: mov eax,ecx / call FUN_0044dc70 (7 bytes); owner == local was checked just before
+    p.patch(0x445ab5, '89c8' + call_rel(0x445ab7, 0x44dc70).hex(), jmp_rel(0x445ab5, rearm_a) + b'\x90\x90')
+    rearm_b = put('rearm_b', f'''
+        cmp dword ptr [{MP:#x}], 0
+        je orig
+        cmp dword ptr [{BUSY:#x}], 1
+        jne orig
+        movzx eax, byte ptr [esi+0x4c]
+        cmp eax, 5
+        jae orig
+        bt dword ptr [0x5a2b28], eax
+        jnc orig
+        mov eax, dword ptr [{d_rearm_n:#x}]
+        cmp eax, {MAX_REARM}
+        jae orig
+        mov word ptr [eax*4 + {d_rearm:#x}], cx
+        mov word ptr [eax*4 + {d_rearm + 2:#x}], 1
+        inc dword ptr [{d_rearm_n:#x}]
+        jmp 0x4459e1
+    orig:
+        mov eax, ecx
+        call 0x4616f0
+        jmp 0x4459d4
+    ''')
+    # 0x4459cd: mov eax,ecx / call FUN_004616f0 (7 bytes); ESI = system, ECX = system index
+    p.patch(0x4459cd, '89c8' + call_rel(0x4459cf, 0x4616f0).hex(), jmp_rel(0x4459cd, rearm_b) + b'\x90\x90')
+    rearm_run = put('rearm_run', f'''
+        call 0x461640
+        pushad
+        xor edi, edi
+    next:
+        cmp edi, dword ptr [{d_rearm_n:#x}]
+        jae done
+        movsx ecx, word ptr [edi*4 + {d_rearm:#x}]
+        imul esi, ecx, 0x328
+        add esi, dword ptr [0x5a36c8]
+        cmp word ptr [edi*4 + {d_rearm + 2:#x}], 0
+        jne auto
+        mov al, byte ptr [esi+0x4c]
+        cmp al, byte ptr [0x5a2b2a]
+        jne skip
+        mov eax, ecx
+        call 0x44dc70
+        test eax, eax
+        je head
+    auto:
+        mov eax, ecx
+        call 0x4616f0
+        lea edx, [esi+0x80]
+        mov eax, ecx
+        call 0x44d830
+        jmp skip
+    head:
+        mov eax, ecx
+        call 0x46138c
+    skip:
+        inc edi
+        jmp next
+    done:
+        mov dword ptr [{d_rearm_n:#x}], 0
+        popad
+        ret
+    ''')
+    p.patch(0x46252f, call_rel(0x46252f, 0x461640), call_rel(0x46252f, rearm_run))
+
+    # ---- Fix J: ship-class refit creates the replacement build order only on the owner's machine -------
+    # When research makes a ship class obsolete, FUN_0044a360 refits the ships of that empire and, for a
+    # human empire, replaces every system's build order of the old class: kill the old order (same on all
+    # machines) and add a new one (0x44a4ea..0x44a4fc). The new order gets its sequence number from THIS
+    # machine's counter for that empire (FUN_0045748c), and the counters differ between machines. The
+    # owner sends its order with the next orders message; the other machines keep their own copy too
+    # (the merge only drops equal numbers) and build twice -> sync error. Reproduced with
+    # tools/r4inject.py (refit 18 -> 9 for empire 0 from saves/five_1201_t103): mismatch at turn 106.
+    # The refit runs after the production loop, so nobody needs the order before the owner's copy arrives.
+    refit = put('refit', f'''
+        mov al, byte ptr [esp+0x130]
+        cmp al, 5
+        jae add
+        cmp al, byte ptr [0x5a2b2a]
+        jne 0x44a4fd
+    add:
+        mov ebx, ebp
+        mov eax, ecx
+        movsx edx, word ptr [esi]
+        call 0x463820
+        mov eax, ecx
+        call 0x457b9c
+        jmp 0x44a4fd
+    ''')
+    p.patch(0x44a4ea, '89eb89c80fbf16' + call_rel(0x44a4f1, 0x463820).hex() + '89c8' + call_rel(0x44a4f8, 0x457b9c).hex(),
+            jmp_rel(0x44a4ea, refit) + b'\x90' * 14)
+
     out["code_end"] = code
     return out

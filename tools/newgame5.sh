@@ -1,6 +1,7 @@
 #!/bin/bash
 # usage: newgame5.sh <exe>   — installs exe into test/A..E and starts a 5-human MP game:
 # A host Cardassians, B Klingons, C Federation, D Ferengi, E Romulans; large ring galaxy, normal difficulty.
+# NEWGAME_CFG="x,y ...": extra clicks on the host's configuration screen (galaxy size 545,476; shape 545,316).
 # Every test/<X>/dxwnd.dxw must point to its own folder, otherwise the game starts fullscreen.
 set -e
 cd "$(dirname "$0")/.." || exit 1                 # repository root
@@ -19,7 +20,7 @@ tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -F
 sleep 1
 for x in A B C D E; do
   $H launch $x "$(cygpath -w "$TEST/$x")"; sleep 6
-  if ! $H wins $x | head -1 | grep -q "800, 600)"; then
+  if ! $H wins $x | grep -q "True, 800, 600)"; then
     echo "instance $x is not windowed 800x600, aborting"
     for y in A B C D E; do $H kill $y >/dev/null 2>&1 || true; done; exit 1
   fi
@@ -33,6 +34,7 @@ $H click A 80 215; sleep 2
 $H click A 250 215; sleep 3
 $H click A 405 270; sleep 1
 $H click A 515 505; sleep 6
+for xy in ${NEWGAME_CFG:-}; do $H click A ${xy%,*} ${xy#*,}; sleep 1; done   # e.g. "545,476 545,316": small spiral galaxy
 $H click A 545 520; sleep 4
 join() {
   x=$1; nm=$2; ry=$3
