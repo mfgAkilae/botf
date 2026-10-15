@@ -46,6 +46,8 @@ try:
             for t in snaps: snaps[t].pop(x, None)
             log('%s (empire %d) removed after its elimination; remaining %s' % (x, LOCAL[x], NAMES))
         live = [x for x in NAMES if x not in OUT]
+        if len(live) < 2:                                    # nothing left to compare with
+            reason = 'only %s left' % live; break
         force_active({x: P[x] for x in live})
         masks = {x: H.readmem(P[x], 0x5a2b28, 1)[0] for x in live}
         turns = {x: u32(P[x], TURN_ADDR) for x in live}

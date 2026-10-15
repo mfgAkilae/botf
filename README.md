@@ -114,6 +114,7 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | war5_v15c/d: 5 humans, manual tactical combat for all races | v1.5.0 | 160 → 200 | no break |
 | war5_q / col_q | v1.6 candidate | 200 → 220 / 20 → 31 | no break |
 | war5_v16: 5 humans, manual tactical combat for all races | v1.6.0 | 220 → 370 | no break (66 tactical combat rounds) |
+| ai2_v16 / ai2b_v16: new games, 2 humans + 3 computer empires | v1.6.0 | 0 → 63 / 0 → 66 | no break; both ended when the computer empires eliminated a human player |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
 sends its own state to everybody). A save made after the problem does not show the problem any more.
