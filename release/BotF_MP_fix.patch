@@ -42,8 +42,9 @@ DESC: Z) the military-sector and diplomacy checksums cover all of their data (de
 DESC: O) all stations of an eliminated empire are removed (one of two neighbours was left over).
 DESC: P) changing conquer/liberate of a running invasion is no longer lost.
 DESC: Q) a colonize order of a fleet whose colony ship was destroyed in combat no longer crashes.
+DESC: G) the system screen no longer crashes when it shows a system the player does not own.
 DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.
-DESC: Uses the free code area 0x516e60-0x517570 (file 0x116260) and .bss 0x6896e0-0x689800.
+DESC: Uses the free code area 0x516e60-0x517620 (file 0x116260) and .bss 0x6896e0-0x689800.
 DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.
 DESC: patch file name: BotF_MP_fix.patch
 TAG: fix
@@ -144,6 +145,15 @@ TAG: fix
 
 >> 0x0b936a C7 05 5C 30 59 00 01 00 00 00
 << 0x0b936a E9 01 D5 05 00 90 90 90 90 90
+
+>> 0x0f6a47 8B 35 A8 5D 59 00
+<< 0x0f6a47 E9 24 FF 01 00 90
+
+>> 0x0f6a82 8A 4A 4C 8D 04 CD 00 00 00 00
+<< 0x0f6a82 E9 59 FF 01 00 90 90 90 90 90
+
+>> 0x0f6f4d 31 D2 8A 53 4C
+<< 0x0f6f4d E9 AE FA 01 00
 
 >> 0x0fcd30 90 9D F5 FF
 << 0x0fcd30 7C 98 01 00
@@ -404,6 +414,32 @@ TAG: fix
 >> 0x116960 00 00 00 00 00 00
 << 0x116950 89 84 24 CC 01 00 00 85 C0 0F 85 09 25 F5 FF 31
 << 0x116960 D2 E9 FA 27 F5 FF
+
+>> 0x116970 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116980 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116990 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1169a0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1169b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1169c0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x1169d0 00 00
+<< 0x116970 8B 35 A8 5D 59 00 50 51 52 53 0F BF 46 1C 0F B7
+<< 0x116980 0D BC 36 5A 00 83 F8 00 7C 1B 39 C8 7D 17 69 D0
+<< 0x116990 28 03 00 00 03 15 C8 36 5A 00 8A 5A 4C 3A 1D 2A
+<< 0x1169a0 2B 5A 00 74 24 31 C0 8B 15 C8 36 5A 00 8A 1D 2A
+<< 0x1169b0 2B 5A 00 39 C8 7D 12 38 5A 4C 74 09 81 C2 28 03
+<< 0x1169c0 00 00 40 EB EE 66 89 46 1C 5B 5A 59 58 E9 7B 00
+<< 0x1169d0 FE FF
+
+>> 0x1169e0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+<< 0x1169e0 8A 4A 4C 80 F9 05 0F 83 C9 00 FE FF 8D 04 CD
+
+>> 0x1169f3 00 00 00 00 00
+<< 0x1169f3 E9 94 00 FE FF
+
+>> 0x116a00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116a10 00 00 00
+<< 0x116a00 31 D2 8A 53 4C 80 FA 05 0F 83 74 05 FE FF E9 3F
+<< 0x116a10 05 FE FF
 
 >> 0x14cf13 6A FF 57 2E FF 15 C0 45 57 00 3D 02 01 00 00 74
 >> 0x14cf23 09

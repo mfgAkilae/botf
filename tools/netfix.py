@@ -888,5 +888,74 @@ def apply(p):
     # 0x469a61: mov [esp+0x1cc], eax (7 bytes)
     p.patch(0x469a61, '898424cc010000', jmp_rel(0x469a61, colship) + b'\x90' * 2)
 
+    # ---- Fix G: the system screen no longer crashes on a system that is not the player's -----------------
+    # The system screen (handler around 0x4f7647) shows the system stored in its widget ([[0x595da8]+0x1c]) and
+    # builds the list of sister systems by walking the system list of that system's owner (empire record
+    # 0x5b1a98 + owner*0x1bc, list +0x50, callback 0x4f7960) at 0x4f7682 and, on refresh, at 0x4f7b4f. The owner
+    # is not checked: when the stored system is not one of the player's (seen in a 5-player test game: player B,
+    # turn 179, after F2) and its owner is a minor race, rebels or nobody (owner >= 5), the "list" is read from
+    # the wrong memory: access violation at 0x51b429, and everybody else sees "Disconnected". Reproduced by making
+    # the stored system an unowned one at 0x4f7647: the original crashes exactly like B. Now the screen first
+    # replaces a stored system that is not the player's by the player's first system; if he has none, the two
+    # list walks are skipped for owner >= 5 (empty list).
+    sysfix = put('sysfix', '''
+        mov esi, dword ptr [0x595da8]
+        push eax
+        push ecx
+        push edx
+        push ebx
+        movsx eax, word ptr [esi+0x1c]
+        movzx ecx, word ptr [0x5a36bc]
+        cmp eax, 0
+        jl search
+        cmp eax, ecx
+        jge search
+        imul edx, eax, 0x328
+        add edx, dword ptr [0x5a36c8]
+        mov bl, byte ptr [edx+0x4c]
+        cmp bl, byte ptr [0x5a2b2a]
+        je ok
+    search:
+        xor eax, eax
+        mov edx, dword ptr [0x5a36c8]
+        mov bl, byte ptr [0x5a2b2a]
+    next:
+        cmp eax, ecx
+        jge ok
+        cmp byte ptr [edx+0x4c], bl
+        je found
+        add edx, 0x328
+        inc eax
+        jmp next
+    found:
+        mov word ptr [esi+0x1c], ax
+    ok:
+        pop ebx
+        pop edx
+        pop ecx
+        pop eax
+        jmp 0x4f764d
+    ''')
+    # 0x4f7647: mov esi,[0x595da8] (6 bytes)
+    p.patch(0x4f7647, '8b35a85d5900', jmp_rel(0x4f7647, sysfix) + b'\x90')
+    sysa = put('sysa', '''
+        mov cl, byte ptr [edx+0x4c]
+        cmp cl, 5
+        jae 0x4f76b5
+        lea eax, [ecx*8]
+        jmp 0x4f768c
+    ''')
+    # 0x4f7682: mov cl,[edx+0x4c] / lea eax,[ecx*8+0] (10 bytes)
+    p.patch(0x4f7682, '8a4a4c8d04cd00000000', jmp_rel(0x4f7682, sysa) + b'\x90' * 5)
+    sysb = put('sysb', '''
+        xor edx, edx
+        mov dl, byte ptr [ebx+0x4c]
+        cmp dl, 5
+        jae 0x4f7b82
+        jmp 0x4f7b52
+    ''')
+    # 0x4f7b4d: xor edx,edx / mov dl,[ebx+0x4c] (5 bytes)
+    p.patch(0x4f7b4d, '31d28a534c', jmp_rel(0x4f7b4d, sysb))
+
     out["code_end"] = code
     return out
