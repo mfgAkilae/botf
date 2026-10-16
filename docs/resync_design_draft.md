@@ -1,396 +1,330 @@
-# DRAFT v7: self-healing multiplayer ("resync instead of synchronization error")
+# DRAFT v8: self-healing multiplayer ("resync instead of synchronization error")
 
-Status: design draft after six review rounds (Claude Fable, Codex gpt-6-astra); not implemented. Round 6
-verdict on v6: Fable "ready for the spike; with five text replacements also ready for implementation, no
-design change required"; Astra "needs another revision (two P1 items); the spike remains worthwhile". v7
-integrates all round-6 findings (section 13); sections 9–12 keep the earlier rounds' changes.
+Status: design draft after seven review rounds (Claude Fable, Codex gpt-6-astra); not implemented. Round 7
+verdict on v7: Fable "text-only revision; spike can start once the queue model, the failure free, the 0x89
+semantics and the host trigger are specified"; Astra "needs another revision (progress blocker, contradictory
+failure handling, membership, addressing)". v8 is a **consistent rewrite of the normative part** (sections
+1–8) that integrates all round-7 findings; the appendix (sections 9–14) is non-normative review history.
 Addresses: trek.exe 2.0.4 EN. [V] = verified in the disassembly (by a reviewer or by us), [I] = inference.
+
+Terms used throughout: **loop-top step** = our code at the main-loop hook 0x402201; **TICK** = the private
+window message that wakes the main loop (it never applies anything); **participant set P** = the frozen set of
+players of a transaction (§3.3); **target turn T** = the turn value the transaction is about (§3.4).
 
 ## 1. Goal
 
 Today a checksum difference after a turn ends the game ("synchronization error", assert, exit; the others see
 "Disconnected"). Goal: on a mismatch every machine takes over the host's game state and the game continues.
-Players lose at most the input of the current turn. All players must use the patched program.
+Players lose at most the input of the current turn. All players must use the patched program. A failed resync
+ends the game exactly like today.
 
 ## 2. Facts the design builds on
 
 - **Transfer** [V]: `FUN_0050de40(slot, flag)` sends a whole save file as 0x72 (flag 0) or 0x73;
-  `floor(bytes/466)+1` packets. The 0x72 receiver writes `auto.sav` (`FUN_0050dd90`) and calls `FUN_0050da70`.
+  ⌊bytes/466⌋+1 packets. The stock 0x72 receiver `FUN_0050dd30(eax = lParam, edx = wParam)` (dispatched at
+  0x50aa10) allocates the buffer and reads the body (0x50dd39..0x50dd74: eax = ecx = buffer, edx = ebp =
+  length), calls `FUN_0050dd90` at 0x50dd76 (writes `auto.sav`, frees the buffer with `FUN_00492e60(eax)` at
+  0x50ddd0, parses and rewrites `gameInfo`) and `FUN_0050da70` at 0x50dd7b; 0x50dd80 pops ebp/edi/esi/ecx/ebx
+  and returns.
 - **Apply** [V] `FUN_0050da70`: keeps the local empire and the session strings 0x5a2928..0x5a2977, loads
   (`FUN_004387f0(-0xd)`), applies a human mask (`FUN_00510ba0`), drops type-2 orders of other humans whose task
   force is missing (`FUN_004569e0`), re-initialises the turn (`FUN_00438740`), rebuilds the screens, restarts
-  the timer (0x50dd14), sets session-descriptor flags (`thunk_FUN_0054c900`, harmless on clients) and
-  `[0x5a2afc] = 0`. Its host branch (0x50dae4, `[0x5a2990] == 1`) re-broadcasts 0x89 and a file; its client
-  branch needs the 0x89 dialog `[0x597508]` (missing dialog → assert path via `FUN_005081b0`).
-- **Mask input** [V] (corrected in round 3): `FUN_0050da70` loads `edx = [0x5a2994]` (resume flag) at
-  0x50da88 and keeps it until the test at 0x50dcc0. `[0x5a2994] == 0` → the **local pre-load** mask
-  `[0x5a2b28]` (0x50dcc4), load at 0x50dba0; `≠ 0` → load first (0x50dce7), then mask `= [0x5a2998]` **from
-  the host's file** (0x50dcf8, `[0x5a2928+0x70]`). `[0x5a2998]` is offset 0xc0 of the saved block and 0 in a
-  fresh game. → The resync uses the resume path: the host writes `[0x5a2998] = [0x5a2b28]` before saving,
-  every machine applies with `[0x5a2994] = 1` (§4.4).
+  the timer (0x50dd14), sets session-descriptor flags (0x50dab0, harmless on clients), `[0x5a2afc] = 0`. Host
+  branch (0x50dae4, `[0x5a2990] == 1`) re-broadcasts; client branch requires the transfer dialog `[0x597508]`
+  (`FUN_0050d010` asserts while it is missing, closes it and pumps twice). `FUN_0050d070` creates that dialog
+  (its `[0x5a2990]` test only selects the dialog text, 0x50d07c..0x50d0b7).
+- **Mask input** [V]: `edx = [0x5a2994]` at 0x50da88, tested at 0x50dcc0. 0 → local pre-load mask
+  `[0x5a2b28]`; ≠ 0 → load first (0x50dce7), then mask `= [0x5a2998]` from the file (0x50dcf8). `[0x5a2998]`
+  is offset 0xc0 of the saved block. `[0x5a2994]` is also read post-turn (0x458238), in the dispatcher (0x50aa74)
+  and by lobby code; it stays 1 in a lobby-resumed game. The resume path additionally skips `FUN_0043a0a0`
+  (0x50dbb6..0x50dbc9 → `FUN_0044d300`, which can restart production).
 - **Teardown on load** [V]: with `[0x5a2920] == 1`, `FUN_004387f0` calls `FUN_0043d0d0` (0x4388f3), which in
-  multiplayer calls `FUN_0050d670` (0x43d0f2: score/"game over" lobby messages, no game state) and
-  `FUN_00519b80` (0x43d0f7 → `FUN_0054cf90`: DestroyPlayer / Close / Release, CoUninitialize, `[0x5fd97c] = 0`).
-  No other call in the load or `FUN_00438740` closes the transport; `FUN_0050da70` itself reads/writes the
-  session descriptor (0x50dab0 → 0x54c989), so transport survival stays experimental. The player table
-  0x5a29f8 comes back from the host's file of the same session. Timers are torn down (0x43d0d6/0x43d0db) and recreated
-  (0x50dd14), so no extra latch reset is needed.
-- **Host identity** [V]: `[0x5a2990]` lies in the saved block (0x5a28d8, size 0xdc0; offset 0xb8) and is
-  overwritten by every load of a host-written file. Transport role: **`[0x5fd978] == 1`** (`FUN_00519fb0`).
-- **Load resets** [V]: turn state `[0x5a291c] = 0` (in the load, 0x43cebd), RNG, order list (current-turn
-  orders skipped and leaked, `FUN_00456b20`), counters (reset, then overwritten from loaded ids), Fix W/W3
-  state, 0x590248, slot contents (pointers kept — harmless, `FUN_004560e0` reuses 0xff slots). **Not reset:**
-  checksum table and CRC words (`FUN_00510230`; called at turn start and from `FUN_0043d6c0`), the Fix B/L
-  parking buffer.
-- **Compare functions** [V]: continuations after the error path are **0x51000b** (`FUN_0050ffe0`) and
-  **0x5103f8** (`FUN_00510260`); 0x51019e/0x510403 would re-run the RNG compares and re-enter the error. Their
-  turn-number checks (0x510058..0x51007c, 0x5102a1..0x5102c6) are **fatal asserts**, not waiting loops: a
-  turn skew between machines must be handled before these functions run. `FUN_00510260` stores without
-  comparing whenever `[0x5a291c] != 0` (also −1 "waiting").
-- **Who detects** [V] (corrected in round 4): `FUN_00458170` sets BUSY (0x458215), merges (0x45821f), clears
-  the checksum state (0x458224), runs the **whole turn processing** `FUN_00458260` (0x458229, ends with
-  `[0x5a291c] = 0` at 0x4586d8 where Fix B's cave clears BUSY), then `FUN_00475290` (0x45822e) and only then
-  `FUN_0050ffe0` (0x458233), whose first call sends this machine's 0x71 (`FUN_005104d0` at 0x50ffec) before it
-  compares. Detection is therefore **post-turn, BUSY = 0**, still inside `FUN_00458170` (called from the 0x68
-  handler 0x456321 or from END TURN). Everything that can pump (autosave inside `FUN_00458260`, tactical combat
-  via `FUN_0046b800 → … → FUN_00473bb0`, events/reports) happens **before** the 0x71 send; after it there is
-  no pump except the replaced error dialog [V]. A 0x71 that arrives while `[0x5a291c] != 0` is stored per
-  sender (index = body byte +0x124 = sender empire, stride 0x130, dword +0 = sender's turn; 0x510492..0x5104be)
-  and compared later; one that arrives while idle is compared at once in `FUN_00510260` and **not** stored
-  (returns at 0x510487). A stored 0x71 is wiped by `FUN_00510230` at the receiver's next turn start
-  (0x458224) — a fast peer's 0x71 can therefore be lost to a slow receiver [V]. Every 0x71 passes
-  `FUN_00510260` (Fix B does not park 0x71), whose body is at esp+0x400 at 0x510278.
-- **Resume-flag readers** [V]: `[0x5a2994]` is also read **post-turn** (0x458238 → `FUN_0050fbd0`), in the
-  dispatcher (0x50aa74) and in lobby join/rejoin handlers; it is written only by lobby code. In a lobby-resumed
-  game it stays 1 for the whole game. The resync must save and restore it, not clear it.
-- **Fresh vs. resume apply** [V]: the only other difference is `FUN_0043a0a0` (0x50dbb6..0x50dbc9, fresh path
-  only), which walks the local empire's system list with callback 0x43a150 → `FUN_0044d300`, which can restart or
-  adjust production (0x44d342..0x44d366). Skipping it suits a running-game snapshot; production preservation is
-  an acceptance condition (§5).
-- **Barrier mask** [V]: own `[0x590248]` | receive slots 0x5b4870 with non-null payload (0x4561c0..0x4561cb) —
-  the slot release after the load is load-bearing for the barrier.
-- **Message pumps** [V]: timer-driven END TURN can enter turn start at depth 0 and pump a network handler at
-  depth 1 (0x4b9f74, 0x4581ee, 0x45820b); a load at depth 1 can still invalidate an active caller.
-- **Fix B/L parking** [V]: at most 23 entries; on overflow the handler runs anyway; the flush reposts and
-  clears the count; newer arrivals can overtake reposted ones.
-- **Bodies**: 0x89 sent with `FUN_005199c0` has no body [V]; any broadcast with body goes through
-  `FUN_00519960(eax=id, edx=body, ebx=len)` [V 0x519960..0x519989: returns 0 when `[0x5fd97c] == 0`, clobbers
-  eax/edx/ebx, DPID_ALLPLAYERS excludes the sender]. Unpatched peers ignore unknown ids [V].
-- **Send ordering** [V/I]: every message is split into ⌊len/466⌋+1 fragments (0x54dfc0) and sent with
-  DPSEND_GUARANTEED (flags 1, 0x54bc23/0x54bc57); the receiver posts a message only after full reassembly
-  (0x54d7a2..0x54d7da). Our Fix C releases the send lock between fragments, but all game messages are sent
-  synchronously from the main thread (only Fix D's unreliable, ignored keepalive comes from the receive
-  thread), so one machine's game messages leave in order. In-order *delivery* per sender pair is a DirectPlay
-  property the binary cannot prove [I]; the stock multi-fragment 0x72 already relies on it; the spike checks it.
-- **Pumps outside the loop top** [V]: modal dialogs (`FUN_00500350`, `FUN_005004a4`), tactical-combat sync
-  loops (0x473d12..0x473d7c: send 0x86, pump, wait for the human acknowledgement mask; the 0x86 receiver
-  asserts on a battle-index mismatch, 0x50ae0c/0x473ed3) and `FUN_0050d010` (pumps twice before the load)
-  never pass 0x402201. With an inactive window the outer loop sleeps in WaitMessage (0x402330) and a posted
-  message wakes it; the **nested** pump `FUN_004024c0` (0x4024c8..0x402510) loops PeekMessage / test
-  `[0x5a28d4]` (0x4024d8) / WaitMessage and returns only when the flag is non-zero. `FUN_00458170` runs that pump
-  twice before processing (0x458201..0x458213): a machine with an inactive window does not finish its turn
-  start (a stock hang) and never sends its 0x71 — an expected cause of a 0x71-complete timeout.
-- **Activation flag** [V]: `[0x5a28d4]` is written only by the WM_ACTIVATEAPP handler `FUN_00401cc0`, which runs
-  sound/input transitions on a change (0x401cd0..0x401d4f), and read by the three pump decisions (0x402328,
-  0x4023a0, 0x4024d8).
-- **Sender identity** [V] (settled in round 6): every game message carries a wire header written by the sender
-  in `FUN_0054df90`; **header +0x20 = the sender's player id `[0x5fd8c4]`** (loaded at 0x519976), +0x10 = the
-  sender's message counter `[0x5a075c]`. The receiver posts wParam = header +0x20, lParam = header +0x10
-  (0x54debf, 0x54de2f, 0x54d7cc..0x54d7da). The DirectPlay idFrom of Receive is discarded (`FUN_0054d770`,
-  0x54d791). The dispatcher's first call `FUN_00510600(eax = wParam)` (0x50a6ef) matches wParam against the
-  player table 0x5a29f8 (5 × 0x34, field +0x28) and reads the empire byte +0x2c. At the Fix B hook (0x50a709)
-  wParam is in **esi**, at 0x510278 in **ebx**. So the fence needs no per-type body decoder: key = wParam,
-  empire via +0x28 → +0x2c; for 0x71 the body empire (+0x124) must match. This is the sender's self-declared
-  id, sufficient for cooperating patched peers, not an authenticated idFrom [I]. `[0x5a075c]` lies outside the
-  saved block, so (sender, counter) stay unique across a resync.
-- **Window-message routing** [V]: the window proc routes only 0x400 and 0x402 to `FUN_0050a6e0` (0x4015e4..
-  0x40160e); other ids never reach the dispatcher. Fix D already wakes the receive thread every 1000 ms
-  (rxwait, netfix.py); PostMessage goes through `[0x57462c]` (IAT_POSTMSG) to `[0x5a074c]` (the main window). A
-  continuous receive stream can keep the receive thread inside its drain loop (0x54da77/0x54dad2) without
-  revisiting rxwait.
-- **Production** [V] (Astra): progress of the current build accumulates on every machine without an owner check
-  (0x4624af, 0x460940..0x4609f0); only the re-arm of the next item is owner-dependent (0x4616e4).
+  multiplayer calls `FUN_0050d670` (0x43d0f2, only when `[0x5b1a88] != 0`: lobby score messages) and
+  `FUN_00519b80` (0x43d0f7 → `FUN_0054cf90`: DestroyPlayer / Close / Release, `[0x5fd97c] = 0`). No other call
+  in the load closes the transport; transport survival without these two calls is a runtime question.
+- **Host identity** [V]: `[0x5a2990]` is in the saved block (offset 0xb8) and overwritten by every load;
+  transport role = `[0x5fd978] == 1` (`FUN_00519fb0`).
+- **Load resets** [V]: `[0x5a291c] = 0` (0x43cebd), RNG, order list (current-turn orders skipped and leaked,
+  `FUN_00456b20`), order counters, Fix W/W3 state, 0x590248, receive-slot contents (pointers kept). Not reset:
+  checksum table/CRC words (`FUN_00510230`), Fix B/L parking, the send counter `[0x5a075c]`.
+- **Turn end and detection** [V]: `FUN_00458170` sets BUSY (0x458215), merges, clears the checksum state
+  (0x458224), runs the turn `FUN_00458260` (0x458229; increments the turn at 0x45856b; ends with
+  `[0x5a291c] = 0`), then `FUN_0050ffe0` (0x458233), which first **sends its own 0x71** (0x50ffec) and then
+  compares the stored entries (loop gate 0x510002, turn assert 0x510058..0x51007c, mismatch 0x5100c9, next
+  entry 0x51000b, epilogue 0x51002d). Everything that pumps (autosave, combat, reports) precedes the send.
+  Incoming 0x71: `FUN_00510260(eax = lParam, edx = wParam)` (0x50ad70); body copied to esp+0x400 before
+  0x510278 (turn at +0 = sender's turn value, empire byte at +0x124), ebx = wParam; idle → compared at once and
+  not stored (0x510487); not idle → stored per sender (0x510492..0x5104be) and wiped at the next turn start.
+  Turn assert 0x5102a1, mismatch 0x51031f, epilogue 0x5103f8.
+- **Sender identity** [V]: wParam = wire header +0x20 = sender's player id `[0x5fd8c4]`; lParam = header +0x10
+  = sender's counter `[0x5a075c]`. The dispatcher's first call `FUN_00510600(eax = wParam)` (0x50a6ef) looks the
+  id up in the player table 0x5a29f8 (5 × 0x34, id +0x28, empire byte +0x2c) and drops the message when the
+  **local** empire or the sender's empire has its bit in `[0x5a2b50]` (0x510606..0x510669). `[0x5a2b50]` is set
+  by `FUN_0043cad0` (elimination, [I]) and is in the saved block (offset 0x278). The DirectPlay idFrom is
+  discarded (0x54d791). At the Fix B hook (0x50a709) wParam is in esi.
+- **Window messages** [V]: the window proc (ebp = HWND, ecx = uMsg, esi = wParam, edi = lParam,
+  0x4014f7..0x401503) routes only 0x400/0x402 to the dispatcher; 0x401507 `81 f9 13 01 00 00`; 0x401613 restores
+  the frame and returns eax (`ret 0x10`). PostMessage = `[0x57462c]`, main window = `[0x5a074c]`. Fix D wakes the
+  receive thread every 1000 ms (rxwait); a continuous receive stream stays in the drain loop (head 0x54d9e1).
+- **Pumps** [V]: the nested pump `FUN_004024c0` returns only when `[0x5a28d4] != 0` after an empty PeekMessage
+  (0x4024d8 `3b 35 d4 28 5a 00` + `75 32` → 0x402512 = idle exit, eax = 1); `[0x5a28d4]` belongs to the
+  WM_ACTIVATEAPP handler `FUN_00401cc0`. A machine with an inactive window hangs in its turn start (stock). The
+  outer loop top 0x402201 = `56 56 56 56 53`; modal dialogs and the combat pump never pass it.
+- **Send ordering** [V/I]: fragments are sent with DPSEND_GUARANTEED; all game messages leave synchronously from
+  the main thread; in-order delivery per sender pair is a DirectPlay property (assumed, checked in the spike).
+- **Production** [V]: progress accumulates on every machine without an owner check (0x4624af); only the re-arm
+  of the next item is owner-dependent (0x4616e4).
 
 ## 3. Protocol
 
-### 3.1 New messages (all via `FUN_00519960`, broadcast; ignored by non-addressees)
+### 3.1 Messages (all broadcast through `FUN_00519960(eax = id, edx = body, ebx = len)`; the sender does not
+receive its own broadcast, so every sender also applies its own message locally)
 
-| Id | From → to | Body | Meaning |
+| Id | From | Body | Meaning |
 |---|---|---|---|
-| 0x8a REQ | any → host | last applied epoch, turn, local CRC words | "I saw a mismatch" |
-| 0x8b FREEZE | host → all | epoch, turn | start transaction `epoch`, install the gates |
-| 0x8c QUIET | all → all | epoch, own view of `[0x5a2b28]` | "my freeze gates are active" (sent by the dispatcher on FREEZE) |
-| 0x8d SNAPINFO | host → all | epoch, file length, file CRC32 | metadata of the file that follows (0x89 + 0x72) |
-| 0x8e LOADED | all → all | epoch, recomputed CRC words + normalised RNG, own view of `[0x5a2b28]` | "I applied the snapshot" (sent at the loop top; only after a successful apply) |
-| 0x8f RELEASE | host → all | epoch | "resume play" |
-| 0x90 ABORT | host → all | epoch | "transaction failed: old error" |
-| 0x91 NACK | host → requester | requester's epoch | "no transaction for you" (stale REQ): back to phase 0 |
-| TICK | receive thread → own window | — | wake-up during a transaction: private window message `WM_APP + 0x92`, intercepted in the window proc at 0x401507 (§4.2); not a network message |
-| 0x93 FAIL | any → host | epoch, reason | "my file check / load failed" → host sends ABORT |
+| 0x8a REQ | any participant | requester id, request seq, last applied epoch, T | "I saw a mismatch at turn T" |
+| 0x8b FREEZE | host | epoch, T, P (empire mask + player ids) | start transaction; everybody gates |
+| 0x8c QUIET | every member of P | epoch, own P view | "my gates are installed" |
+| 0x8d SNAPINFO | host | epoch, file length, file CRC32 | expected values for the raw-buffer check |
+| 0x8e LOADED | every member of P | epoch, CRC words + normalised RNG, own P view | only after a successful apply |
+| 0x8f RELEASE | host | epoch | resume play |
+| 0x90 ABORT | host | epoch | terminal: stock error on every machine |
+| 0x91 NACK | host | requester id, request seq | "no transaction for this request": requester back to phase 0 |
+| 0x93 FAIL | any member | epoch (0 before FREEZE), reason | "my check, load or deadline failed": host sends ABORT |
 
-Snapshot transfer stays the stock 0x89 (dialog) + 0x72 (file). The host assigns the epoch (monotonic counter
-in its data cave); clients never invent one. Acks are broadcast so that every machine sees every other
-machine's QUIET/LOADED (needed for the per-sender fence, §3.4).
+Snapshot transfer is the stock 0x89 (dialog) + 0x72 (file). Ids 0x8a..0x93 are new network message ids
+(dispatched through the 0x50a709 cave; unpatched peers ignore them). TICK is not a network message (§4.3).
 
 ### 3.2 Phases (per machine)
 
-`rs_phase`: 0 idle → 1 requested (mismatch seen, REQ sent) → 2 frozen (FREEZE received: gates set, Fix B
-parked 0x68/0x74/0x85 freed with their payloads, QUIET sent — all inside the dispatcher, at any depth) →
-3 transferring (SNAPINFO, 0x89, 0x72 received; 0x89/0x72 queued and applied at the next loop top) → 4 loaded
-(LOADED sent, waiting for RELEASE) → 0. FREEZE moves 0 → 2 and 1 → 2 (several requesters join the same
-transaction); a duplicate FREEZE/SNAPINFO of the same epoch is ignored. NACK moves 1 → 0. ABORT/FREEZE that
-arrive inside the pumps of `FUN_0050d010` only set a flag that is acted on after the apply. LOADED(epoch) from
-any sender is recorded in every phase ≥ 2 (a fast peer may load first); the own LOADED is marked locally. A
-client whose file check or load fails sends FAIL; the host answers ABORT.
+0 idle → 1 requested → 2 frozen → 3 transferring → 4 loaded → 0 (RELEASE) or terminal (ABORT / local failure).
 
-**When the host freezes** (rounds 4–5): the host sends FREEZE only when the turn's 0x71 has been seen from
-**every** human in the mask. Evidence is a never-cleared table `rs_last71[emp]` = turn number (body +0) of the
-last 0x71 from that empire (body +0x124), recorded by a hook at **0x510278** in `FUN_00510260` (`83 3d 20 29
-5a 00 00`, cmp `[0x5a2920]`,0; the following `je 0x5103f8` is `0f 84 73 01 00 00`; body at esp+0x400) — every
-0x71 passes there, idle or not, in every phase; the same hook implements the phase gate (`rs_phase != 0` →
-jump to 0x5103f8, same stack frame). 0x71-complete := `[0x5a291c] != 1` (own completion; the own 0x71 is not
-received) and `rs_last71[h] == [0x5a2918]` for every human h ≠ self in `[0x5a2b28]`; the sender/empire mapping
-is checked against the player table 0x5a29f8. A turn-N 0x71 cannot satisfy N+1. **Eligibility** (round 6,
-Astra): empire-status bits can suppress turn processing and discard messages before the ledger hook (0x458196,
-0x50a6ef → `FUN_00510600` mute mask `[0x5a2b50]`, 0x510626..0x510669), so the earlier claim "eliminated humans
-always send 0x71" is not established. The host therefore waits only for **eligible** members — humans in the
-mask that are not marked dead in `[0x5a2b50]` and have a player-table entry — and aborts on any membership
-state it cannot classify. **0x71 proves simulation
-progress, not quiescence**: every machine has then finished the turn's processing including tactical combats
-and their 0x86 exchange (all pumping steps precede the send), but it may still be inside a modal screen opened
-afterwards; FREEZE only installs gates, the load waits for each machine's loop top (§4.2), covered by the
-minutes-long LOADED timeout. The barrier for the next turn cannot complete, because the requester and the host
-block END TURN from phase 1 on.
+- 0 → 1: own mismatch (§4.1): send REQ, start D_req.
+- 0 → 2 and 1 → 2: accepted FREEZE (epoch new, this machine in P): install the gates (§3.5), purge Fix B parked
+  0x68/0x74/0x85 (freeing their records), send QUIET; duplicates of the same epoch are ignored.
+- 1 → 0: NACK addressed to this requester (id and seq match).
+- 2 → 3: SNAPINFO of the current epoch received (host: after sending it).
+- 3 → 4: successful apply (§4.4), LOADED sent.
+- 4 → 0: RELEASE of the current epoch (host: after sending it).
+- any → terminal: ABORT, own deadline expiry, own check/load failure (§3.6).
 
-**Membership** (round 5): the member set is fixed at FREEZE from the human mask and the connected DirectPlay
-ids; QUIET and LOADED carry the sender's view of `[0x5a2b28]`; any disagreement (divergent elimination) or a
-terminal game state → ABORT. Nobody waits for an absent player.
+### 3.3 Participant set P
 
-**Requests** (round 4): REQ carries the requester's last applied epoch. Host: a REQ while a transaction runs is
-merged into it; a REQ with an older epoch than the host's last completed one is stale → NACK (the requester
-returns to phase 0 and its next compare decides again); otherwise a new transaction starts. No silent drop.
+Fixed by the host at FREEZE: every empire that is human in `[0x5a2b28]`, not set in `[0x5a2b50]`, and has a
+player-table entry with a non-zero id. P (empire mask + player ids) travels in FREEZE; every member echoes its
+own view in QUIET and LOADED; any difference, a FREEZE that does not contain the receiving machine although it
+is human and alive, or a membership state the host cannot classify → ABORT. All completion, QUIET and LOADED
+requirements use P and nothing else. The stock mute filter (`FUN_00510600`) only drops traffic in which the
+local or the sender's empire is marked in `[0x5a2b50]`; such empires are never in P, so resync control traffic
+between members of P passes it.
 
-Host additionally: waits for QUIET from all humans in the mask before saving and sending SNAPINFO + 0x89 +
-0x72; waits for LOADED from all before RELEASE; compares every LOADED set with its own; mismatch → ABORT.
-**Timeouts** are checked at the loop top **and** in the dispatcher on every TICK (so they also run inside
-nested pumps): client phase 1 without FREEZE or NACK — the same several minutes as the host's 0x71-complete
-wait plus a margin (the requester cannot know how long the host waits); 0x71-complete before FREEZE several
-minutes; QUIET 60 s; LOADED several minutes, all with the visible wait dialog. Any timeout → ABORT → the old error on every
-machine. **ABORT is terminal**: no new transaction in that game after a failure, drop or migration — a failed
-transaction falls back exactly to today's behaviour.
+### 3.4 Target turn and the host's decision
 
-### 3.3 What is blocked in which phase
+Each machine records `own71 = [0x5a2918]` at the compare-loop gate 0x510002 (first iteration; it runs after the
+own 0x71 send at 0x50ffec). REQ carries T = the requester's own71. The host keeps `rs_last71[emp]` (§4.1).
 
-| | 1 requested | 2 frozen | 3 transferring | 4 loaded | after RELEASE |
-|---|---|---|---|---|---|
-| END TURN (0x458120), turn start (0x458170), timer expiry | **blocked** | blocked | blocked | blocked | allowed |
-| incoming 0x71 | recorded in `rs_last71` (as in every phase), not compared | recorded, dropped | recorded, dropped | recorded; **per-sender fence** | recorded; **per-sender fence** |
-| incoming 0x68 / 0x74 / 0x85 / 0x86 | normal | dropped | dropped | **per-sender fence** | **per-sender fence** |
-| local input that creates orders | allowed (the load drops it) | allowed (the load drops it) | — | blocked until RELEASE | allowed |
-| compare functions | skipped | skipped | skipped | skipped | normal |
+Host, on REQ (or own mismatch with T = own71):
+- a transaction is running → merge (the requester is a member; nothing to send);
+- the request's last applied epoch is older than the host's last completed epoch → NACK(requester id, seq);
+- otherwise → host phase 1 with this T, D_complete started.
 
-Per-sender fence (**lifecycle**, round 5): armed only by an accepted FREEZE, keyed by epoch and sender; active
-from phase 4 on and **independent of the local phase** (stays active after RELEASE until it opens): a
-0x68/0x74/0x85/0x86/0x71 from sender S is dropped until this machine has received S's LOADED for the current
-epoch. The fence check runs **before any queue that can reorder** (the Fix B park) and the parked entries are
-purged at FREEZE, so no stale repost can pass an open fence. The fence and epoch state live outside the saved
-block and are reset on a new game or lobby entry. An AI takeover cannot inherit a fence: a drop aborts the
-transaction (§4.5). DirectPlay guaranteed messages are ordered per sender pair [I], so everything S sent before
-loading arrives before S's LOADED; everything after is valid. The fence key is the sender's player id from
-wParam (§2: esi at the Fix B hook, ebx at 0x510278), validated against the frozen member set.
+In phase 1 the gates allow a machine to finish turns up to T but not beyond: END TURN (0x458120) and turn start
+(0x458170) are allowed only while the machine's `[0x5a2918]` < T (a machine that is still behind — typically the
+host waiting for a late 0x68 — completes turn T with its normal traffic); at `[0x5a2918]` ≥ T they are blocked.
+**0x71-complete** := own71 == T and `rs_last71[e] == T` for every empire e in P except the host's own. Then the
+host sends FREEZE(epoch, T, P), installs its own gates and marks its own QUIET.
+
+### 3.5 Gates (from FREEZE until RELEASE; phase 1 gates per §3.4)
+
+| | phase 1 | phases 2–3 | phase 4 | after RELEASE |
+|---|---|---|---|---|
+| END TURN 0x458120, turn start 0x458170, timer END TURN (Fix K cave 0x4b9f6a) | allowed below T, blocked at ≥ T | blocked | blocked | allowed |
+| incoming 0x71 | recorded; not compared | recorded; dropped | recorded; per-sender fence | recorded; per-sender fence |
+| incoming 0x68 / 0x74 / 0x85 / 0x86 | normal | dropped | per-sender fence | per-sender fence |
+| compare functions | skipped (gate 0x510002; 0x510278 → 0x5103f8) | skipped | skipped | normal |
+
+Local UI input is not gated: orders made before the load are dropped by the load; orders made after it belong
+to the new turn and are legitimate (END TURN stays blocked until RELEASE).
+
+**Per-sender fence**: armed by an accepted FREEZE for each member S ≠ self of P; a 0x68/0x74/0x85/0x86/0x71
+from S (key = wParam) is dropped until S's LOADED of the current epoch has been received; checked before any
+queue that can reorder (Fix B park); stays active after RELEASE until it opens; reset on new game / lobby
+entry. Correct under per-sender in-order delivery (spike).
+
+### 3.6 Deadlines and termination
+
+All deadlines count from the named event, are checked in the loop-top step and in the TICK handler, and are not
+extended by duplicates:
+
+| Deadline | Who | Starts at | Length |
+|---|---|---|---|
+| D_req | requester | REQ sent | 330 s (D_complete + 30 s margin) |
+| D_complete | host | phase 1 entered | 300 s |
+| D_quiet | host | FREEZE sent | 60 s |
+| D_loaded | host | SNAPINFO sent | 300 s |
+| D_abort | any machine after sending FAIL | FAIL sent | 30 s |
+
+On ABORT, on own deadline expiry and 30 s after an own FAIL the machine raises the **stock error** from the
+loop-top step by replicating the sequence of 0x5100c9..0x5100e0 (`eax = 0x4bd`, `ebx = -1`, `call 0x48b2e0`,
+dialog with `[0x5cd5f8]`; to be verified in the spike). Before that a client sends FAIL(epoch or 0, reason) so
+the host can ABORT the others. The host applies its own RELEASE and ABORT locally. ABORT is terminal: no new
+transaction in that game. A pending ABORT always has priority over LOADED.
+
+Rate limit (host only): at most 2 accepted transactions per 10 turns; a further REQ → ABORT.
 
 ## 4. Mechanics
 
-### 4.1 Detection hooks
+### 4.1 Hooks for detection and evidence
 
-At 0x5100c9 and 0x51031f: multiplayer, `rs_phase == 0`, rate limit OK → `rs_phase = 1`, send REQ (host:
-handle locally), continue at **0x51000b / 0x5103f8**. Rate limit enforced by the host: at most 2 accepted
-transactions per 10 turns (sliding); over the limit the host answers ABORT → old error.
+- **Compare-loop gate** 0x510002 (`83 bd c0 cf 5c 00 ff`): first iteration records own71; while `rs_phase != 0`
+  jump to 0x51002d; else replay the cmp and continue at 0x510009.
+- **Mismatch** 0x5100c9 and 0x51031f: multiplayer and `rs_phase == 0` → phase 1, REQ, continue at 0x51000b
+  (the gate then ends the loop) / 0x5103f8.
+- **0x71 ledger** at 0x510278: overwrite only the 7-byte `cmp [0x5a2920],0` (`83 3d 20 29 5a 00 00`); cave:
+  `FUN_005105d0(eax = ebx)` → record (0 → skip the ledger), require record byte +0x2c == body byte
+  `[esp+0x524]`, `rs_last71[emp] = [esp+0x400]`; if `rs_phase != 0` or the fence blocks this sender, jump to
+  0x5103f8 (restoring any cave pushes); else replay the cmp and jump to 0x51027f (the intact `je`). Ledger
+  initialised per session, never cleared at a turn start.
 
-**Local compare loop gate** (round 6, Astra): `FUN_0050ffe0` sends its own 0x71 first (0x50ffec, kept), then
-iterates the stored entries; its turn-number assert (0x510058..0x51007c) precedes the mismatch site, and the
-continuation 0x51000b goes on to the **next** entry. Hook each iteration at 0x510002 (`83 bd c0 cf 5c 00 ff`):
-while `rs_phase != 0` jump to the epilogue 0x51002d; otherwise replay the cmp and continue at 0x510009. A
-mismatch that enters phase 1 therefore skips all remaining comparisons.
+### 4.2 Dispatch of resync traffic (the 0x50a709 cave, extended Fix B)
 
-**0x71 ledger and gate** at 0x510278 (`83 3d 20 29 5a 00 00`, then `0f 84 73 01 00 00`; 13 bytes; body at
-esp+0x400, turn `[esp+0x400]`, empire `byte [esp+0x524]`, **ebx = wParam = sender id**; nothing before it
-asserts or tests the turn — the `[0x5a291c]` test is at 0x510285, the turn assert at 0x5102a1; all GPRs are dead
-for the stock code there): map the sender with `FUN_005105d0(eax = ebx)` (record or 0; unknown sender → no
-ledger entry), require record byte +0x2c == body +0x124, record `rs_last71[emp] = turn`, then apply the
-phase/fence gate (jump to 0x5103f8 — the stock epilogue, `add esp,0x650; pop edi/esi/ecx/ebx; ret`, after
-restoring any cave pushes) or replay the cmp and resume at 0x51027f. The ledger is initialised per game/session
-and never cleared at an ordinary turn start.
+- 0x8a..0x93: handled here (state changes only; at any depth).
+- 0x89, 0x72 during a transaction (or the spike): **queued as (wParam, lParam) pairs**, exactly like the Fix B
+  park; the receive record stays in the pool. The Fix B flush never reposts these entries. 0x73 during a
+  transaction: dropped (its record freed). 0x72 without a SNAPINFO of the current epoch → FAIL.
+- At the loop-top step, one entry per iteration is re-dispatched through `FUN_0050a6e0(eax = 0x400,
+  edx = wParam, ebx = lParam)` with `rs_pass = 1` so the cave lets it through; the stock handlers then run
+  (0x89 → `FUN_0050cfd0` creates the dialog; 0x72 → `FUN_0050dd30` with the hooks of §4.4).
 
-### 4.2 Safe point and wake-up
+### 4.3 Loop-top step and TICK
 
-The load (applying 0x89/0x72) happens only at the **main-loop top 0x402201** (`56 56 56 56 53`, five one-byte
-pushes replayed in the cave; esi/ebx preserved). QUIET is sent from the dispatcher (§3.2), so a machine inside
-a modal dialog or a tactical combat (their own pumps never pass 0x402201) freezes at once and applies when it
-returns to the loop. With an inactive window the loop sleeps in WaitMessage (0x402330) and passes 0x402201
-only when a message arrives, so during a transaction the receive thread posts a wake-up message once per
-second. **TICK route** (round 6): a private window message `WM_APP + 0x92`, intercepted in the window proc at
-0x401507 (`81 f9 13 01 00 00`, cmp ecx,0x113; ecx = uMsg, ebp = HWND, esi = wParam, edi = lParam): TICK runs
-the timeout bookkeeping with all registers preserved, sets eax = 0 and leaves through 0x401613; other messages
-replay the cmp and resume at 0x40150d. TICK never performs a receive-record lookup and never applies a snapshot.
-Posted by a rate-limited helper (push 0, push 0, push WM_APP+0x92, push `[0x5a074c]`, call `[0x57462c]`) from
-the Fix D rxwait cave **and** from the receive drain loop (e.g. at 0x54d9e5, replaying `bb 01 00 00 00`), so a
-continuous receive stream cannot starve it. (Alternative verified by Fable: message 0x400 with wParam 0 and
-lParam 0xffffffff, intercepted at 0x50a6ef `e8 0c 5f 00 00` before `FUN_00510600`, exit 0x50a748 — rejected
-because it shares the network message id.) The apply's own nested pump (`FUN_0050d010` → `FUN_004024c0`) does
-not return to its caller while the window is inactive. **Decision (round 5):** `[0x5a28d4]` stays owned by the
-activation handler; a **scoped pump override** at 0x4024d8 (`3b 35 d4 28 5a 00`, cmp esi,[0x5a28d4], esi = 0,
-followed by `75 32` jne 0x402512; reached only after an empty PeekMessage) — cave: if `rs_apply` jump to
-0x402512 (stock idle exit: eax = 1, pops esi/edx/ecx/ebx, ret), else replay the cmp and continue at 0x4024de.
-Queued messages, activation handling and WM_QUIT keep their paths; all callers of `FUN_004024c0` ignore the
-result or test only 0 [V]. The outer loop (0x402328) needs no override (it returns to the loop top after
-waking), and 0x4023a0 belongs to the tactical-combat pump `FUN_00402360`, not to the apply path [V]. 0x40233c was considered
-but needs an active window and an empty queue. The resync messages (0x89, 0x72, 0x73
-during a transaction) go into a **dedicated bounded queue** (own buffer, explicit payload ownership, no
-execution on overflow → ABORT), not into the Fix B/L buffer; the Fix B flush must not repost them. Entries
-are applied in arrival order at the loop top, one per iteration, with a re-entry flag around `FUN_0050da70`.
+- **Loop-top step** (hook 0x402201, five pushes replayed, all registers preserved): checks deadlines, performs
+  the host's steps (§4.5), re-dispatches one queued entry, sends LOADED after a successful apply.
+- **TICK** = window message `WM_APP + 0x92`, intercepted in the window proc at 0x401507: checks deadlines with
+  all registers preserved, returns eax = 0 through 0x401613; any other message replays the cmp and continues at
+  0x40150d. Posted by a rate-limited helper (push 0, push 0, push WM_APP+0x92, push `[0x5a074c]`, call
+  `[0x57462c]`) from the Fix D rxwait cave and from the receive drain loop (0x54d9e5, replaying
+  `bb 01 00 00 00`), only while `rs_phase != 0`.
+- **Pump override** at 0x4024d8: if `rs_apply` jump to 0x402512 (stock idle exit), else replay the cmp and
+  continue at 0x4024de. `[0x5a28d4]` is never written.
 
-### 4.3 Host steps (at the loop top, `[0x5a291c] != 1`, i.e. idle or waiting)
+### 4.4 Apply (every machine; the host calls it directly, §4.5)
 
-1. receive REQ (or own detection, post-turn) → phase 1, END TURN blocked; wait until the 0x71 of the turn has
-   arrived from every eligible member (§3.2); then epoch += 1, install the state, FREEZE(epoch, turn), freeze
-   itself (phase 2) and **mark its own QUIET locally**;
-2. wait for QUIET of all eligible members (timeout → ABORT);
-3. at its loop top: `[0x5a2998] = [0x5a2b28]` (both in the saved block); save `auto.sav`
-   (`FUN_00438630(-0xd)`, also with autosave off); compute length and CRC32 of **that original file**; send
-   SNAPINFO(epoch, file length, CRC32); enter **phase 3**;
-4. broadcast 0x89, then `FUN_0050de40(-0xd, 0)`;
-5. apply its own file through the same helper as everybody (§4.4; the broadcast does not reach the sender, so
-   the helper calls `FUN_0050d070` unconditionally);
-6. collect LOADED (own one marked locally after a successful apply); all sets equal → RELEASE; else ABORT.
+Raw-buffer check at 0x50dd76 (client only): compare edx (length) and the CRC32 of [eax..eax+edx) with
+SNAPINFO. Mismatch → `FUN_00492e60(eax = buffer)`, skip both calls, jump to 0x50dd80; close the transfer
+dialog if it exists (the stock close of `FUN_0050d010`); send FAIL; terminal per §3.6. Match → run the original
+call to `FUN_0050dd90`; at 0x50dd7b the call goes to the **apply helper**:
 
-Every machine: the apply guard is acquired **before** any dialog work; a failed check or load cleans up
-(queue entries freed, flags reset, `[0x5a2994]`/`[0x5a2990]` restored) and sends FAIL — **never LOADED**; only
-a successful apply enters phase 4.
+1. acquire `rs_apply` (re-entry guard; resync handlers only set flags while it is held); save `[0x5a2994]`;
+2. ensure the transfer dialog exists exactly once (`FUN_0050d070` only if `[0x597508] == 0`);
+3. set `[0x5a2990] = 0` and `[0x5a2994] = 1`; reset the file-open and tail flags;
+4. call `FUN_0050da70` — inside it: `FUN_0043d0d0` skips 0x43d0f2 and 0x43d0f7 while `rs_apply` is held (call
+   hooks); the file-open flag at 0x4387fb (reproduce `cmp eax,1` / `je 0x438805`, record eax == 1); the tail flag
+   at 0x4389c0 (call `FUN_0051c9c0`, set the flag, continue at 0x4389c5); `FUN_0050d010` closes the dialog;
+5. **common cleanup, every exit**: restore `[0x5a2994]`; `[0x5a2990] = [0x5fd978]`; release the receive slots
+   the Fix Y way; `FUN_00510230`; release `rs_apply`;
+6. **only on success** (both flags set, no pending ABORT): recompute — `FUN_00508080` (esi = dedicated 0x120-byte
+   buffer; reload esi afterwards), `FUN_00447b40` (eax = 0x597610, edx = 0x597612, ebx = 0x597614),
+   `FUN_0043db00` → 0x597616, `FUN_0045d570` → 0x597618, zero buffer dwords +4..+0x14 — and send LOADED;
+   phase 4;
+7. on failure: FAIL, terminal per §3.6 (never LOADED).
 
-A host waiting at −1 is fine: the load resets `[0x5a291c]` to 0 and drops its sent current-turn orders like
-everybody's.
+### 4.5 Host steps (loop-top step)
 
-### 4.4 Apply on every machine (including the host)
+1. phase 1 until 0x71-complete (§3.4); then FREEZE, own gates, own QUIET marked; phase 2;
+2. QUIET from every member of P (D_quiet);
+3. `[0x5a2998] = [0x5a2b28]`; save `auto.sav` with `FUN_00438630(eax = -0xd)` (also with autosave off); length
+   and CRC32 of that file; SNAPINFO; phase 3;
+4. `mov eax,0x89; call 0x5199c0` (no body); `FUN_0050de40(eax = -0xd, edx = 0)`;
+5. own apply: the helper of §4.4 from step 1, called directly in the same step (no raw-buffer check; the host
+   validated its own file in step 3);
+6. LOADED from every member of P with equal values (D_loaded) → RELEASE (applied locally); mismatch, FAIL or
+   deadline → ABORT (applied locally).
 
-At the loop top, phase 3, one guarded **apply helper** for host and clients alike (the host never passes the
-stock 0x72 receiver, so the helper is called from the tick): `[0x5a2990] = 0` **before** `FUN_0050d070` (it too
-takes a host branch while `[0x5a2990] == 1`, 0x50d07c..0x50d0a7), then `FUN_0050d070` for the dialog (host:
-unconditionally). **File check before materialisation** (round 6, Astra): the stock 0x72 receiver calls
-`FUN_0050dd90` at 0x50dd76 (`e8 15 00 00 00`, eax = buffer, edx = length) **before** the apply call at 0x50dd7b;
-that function writes `auto.sav`, frees the buffer, parses the archive (can assert on a missing `gameInfo`) and
-rewrites/recompresses `gameInfo` (0x50ddd0, 0x4389db, 0x4389e7, 0x51c163, 0x50de18..0x50de2e). So the length
-and CRC32 from SNAPINFO are checked against the **raw received buffer at 0x50dd76**: on success the original
-call runs and the guarded apply follows; on failure the buffer is freed exactly once and the receiver exits
-through 0x50dd80 (no materialisation, no apply) → FAIL. The host validates its own original file in step 3 of
-§4.3; the CRC of a client's rewritten archive is never used to identify the transport bytes. Then save
-`[0x5a2994]` in the data cave (outside the saved block); block timer-driven END TURN while the re-entry flag is
-set (the dialog pump runs the timer path `FUN_00402410` at depth 0, where Fix K does not defer); then
-`FUN_0050da70` with
-- `[0x5a2990] = 0` (client branch, no re-broadcast) and `[0x5a2994] = 1` (resume path: the mask comes from
-  the host's file, `[0x5a2998]`), both set before the call — the branch is chosen before the load overwrites
-  them (0x50dae4, 0x50da88);
-- the scoped pump override (§4.2) instead of touching `[0x5a28d4]`;
-- the transport-preserving reload: `FUN_0043d0d0` skips 0x43d0f2 and 0x43d0f7 while phase == 3;
-- a re-entry flag that covers all resync handlers while `FUN_0050da70` and its pumps run;
-afterwards — on **every** exit of the helper: restore `[0x5a2994]`, `[0x5a2990] = [0x5fd978]`, slots released
-the Fix Y way (load-bearing for the barrier), `FUN_00510230`, then **recompute** with an own helper that
-replicates the stock sequence of `FUN_005104d0` without its send (0x510592), register contracts verified in
-round 5: `FUN_00508080` (esi = destination of a dedicated 0x120-byte buffer; copies from 0x596bac; clobbers eax
-and advances esi — reload esi afterwards; preserves ecx/edx/ebx), `FUN_00447b40` (eax = 0x597610,
-edx = 0x597612, ebx = 0x597614, all three freshly loaded; eax/edx/ebx scratch), `FUN_0043db00` → ax →
-0x597616 and `FUN_0045d570` → ax → 0x597618 (no register inputs, other registers preserved), then zero the
-buffer dwords at +4, +8, +0xc, +0x10, +0x14 (stock normalisation 0x510547..0x510577, receiver
-0x5102e2..0x5102fe); preserve the enclosing hook's registers and flags; broadcast LOADED(epoch, those values,
-own view of `[0x5a2b28]`); phase 4. Flags (reset before every attempt): **file-open** at 0x4387fb — reproduce
-`cmp eax,1` (`83 f8 01`) and the branch (`74 05` → 0x438805 / fall-through 0x438800) explicitly, record the
-result without changing the branch; **load reached its tail** at 0x4389c0 (`e8 fb 3f 0e 00`, call
-`FUN_0051c9c0`: call the original, set the flag, continue at 0x4389c5; a 5-byte patch at 0x4389c5 would split
-`add esp,0x14`). Both load branches rejoin before the tail without a conditional return (0x438834..0x4389cd),
-so the tail flag means "ran to the end", not "data valid" — the SNAPINFO check is the real guard. Missing flag →
-FAIL / ABORT.
-**Assert** (logged in the spike): `[0x597504]` equals the loaded `[0x5a2b28]` before `FUN_00510ba0` — if the
-host forgot `[0x5a2998]`, `FUN_00510ba0` would turn every human into a computer empire (`FUN_0043a160`).
+### 4.6 Membership changes
 
-### 4.5 Membership changes
-
-Handled on the main thread: host migration in `FUN_00510b30` (system message 4), drops in `FUN_0050d730`
-(message 2). During phases 1–4 the transaction is aborted (terminal, old error) **before** the drop handler
-mutates membership, the human mask, AI ownership and the receive state (0x50d83c, 0x50d870..0x50d894) or
-starts a turn (0x50d8a4). The member set is fixed at FREEZE (human mask and DirectPlay ids); resync messages
-from non-members are ignored. An unexpected 0x73 in a running game keeps its stock, non-loading handling.
+Host migration (`FUN_00510b30`, system message 4) and drops (`FUN_0050d730`, message 2) during phases 1–4 abort
+the transaction (terminal) **before** the drop handler mutates membership, the human mask, AI ownership or the
+receive state (0x50d83c, 0x50d870..0x50d894) or starts a turn (0x50d8a4).
 
 ## 5. Consequences for the players
 
-- Input of the current turn is lost everywhere; build queues return from the file and are re-sent at the next
-  END TURN.
-- Production: progress is replicated (§2); the open question is only the next item an owner re-armed in the
-  last turn. **Acceptance gate**: measure host/owner/third-party records, queues and orders around unfinished
-  builds, completion, purchase, deletion, the snapshot, the reload and the next END TURN.
-- A wait dialog during the transfer; if the host window is inactive the transaction still runs (loop top).
+- Input of the current turn is lost everywhere; build queues come back from the file and are re-sent at the
+  next END TURN.
+- Production: progress is replicated; open is only the item an owner re-armed in the last turn (acceptance:
+  compare host/owner/third-party records, queues and orders before and after).
+- A wait dialog during the transfer.
 
 ## 6. Risks (ranked)
 
-1. Transport survival with the preserving reload (§4.4) — spike first.
-2. Re-entrancy (§4.2) — dedicated queue, loop-top only.
-3. Protocol races and deadlocks (§3) — phases with acks, per-sender fence, timeouts.
-4. Mask/branch selection (§2) — resume path with `[0x5a2998]` from the host's file.
-5. Membership changes during the transaction (§4.5).
-6. Production consistency (§5).
-7. Leaks (`FUN_00456b20`, pools 0x591798 / receive pool) and the Fix C send-retry exhaustion that returns
-   success (0x54e172) — measure; the file CRC in SNAPINFO + the LOADED values catch a broken transfer.
-8. Code size: 0.8–1.2 KB of cave code (protocol, queue, hooks) — more than the ~1.7 KB left after v1.7.0
-   allows comfortably; plan a new PE section in the patcher (affects all 143 variants).
+1. Transport survival without the two teardown calls — spike.
+2. Per-sender in-order delivery (fence) — spike.
+3. Re-entrancy — queue + loop-top step + `rs_apply`.
+4. Protocol races — phases, target turn, deadlines, fence.
+5. Membership changes — abort before mutation.
+6. Production consistency — acceptance measurement.
+7. Leaks (`FUN_00456b20`, pools) — measure over repeated transfers.
+8. Code size: protocol + helpers + data (0x120-byte RNG buffer, queue, ledger, deadlines) ≈ 1–1.5 KB; the code
+   cave has ~1.7 KB left after v1.7.0 → use a **new PE section** (the patcher must support it for all 143
+   variants).
 
-## 7. Plan
+## 7. Spike (test build only, self-contained)
 
-1. **Spike** (test build only, no protocol, all players deliberately idle): a poke-able trigger byte makes the
-   host transfer its state; every machine applies at its loop top. Patch sites:
+Purpose: prove (1) transport survival, (2) a correct apply on every machine, (3) per-sender ordering evidence.
+No protocol; every step is triggered by poking test fields with the debugger tools.
 
-   | Site | Original bytes (verified) | Purpose |
-   |---|---|---|
-   | 0x402201 | `56 56 56 56 53` (no jump targets inside) | loop-top tick: host transfer on the trigger, call the apply helper for queued 0x89/0x72; replay the pushes, full register preservation |
-   | 0x50a709 (existing Fix B cave) | `66 89 04 24 8b 04 24` | divert 0x89/0x72 into a 2-entry owned queue (also when parked while BUSY and reposted at 0x4586d6); keep the dispatcher's registers |
-   | 0x50dd7b | `e8 f0 fc ff ff` | stock 0x72 apply call → the guarded apply helper (caller pops ebp/edi/esi/ecx/ebx afterwards: preserve them and EDX as the original callee does; eax free) |
-   | 0x43d0e0 or 0x43d0f2 + 0x43d0f7 | `83 3d 24 29 5a 00 00` (`je` at 0x43d0e7 consumes the flags) or `e8 79 05 0d 00` + `e8 84 ca 0d 00` | skip the lobby report and the transport close during the reload (the 7-byte variant must keep the shutdown CMP's flags outside the apply) |
-   | 0x4387fb | `83 f8 01 74 05` | file-open flag; reproduce the compare and branch |
-   | 0x4389c0 | `e8 fb 3f 0e 00` | tail flag: call `FUN_0051c9c0`, set the flag, continue at 0x4389c5 |
-   | 0x4024d8 | `3b 35 d4 28 5a 00` (then `75 32`) | scoped override: if `rs_apply` jump to 0x402512, else replay the cmp and continue at 0x4024de |
-   | 0x50dd76 | `e8 15 00 00 00` | raw-buffer check (length + CRC32 logged by the host trigger) before `FUN_0050dd90`; failure frees the buffer once and exits via 0x50dd80 |
-   | 0x510002 | `83 bd c0 cf 5c 00 ff` | compare-loop gate: while a transfer is active jump to 0x51002d, else replay and continue at 0x510009 (needed in the spike only if the trigger runs while 0x71 compares can happen; harmless otherwise) |
+**Data** (new section or test shim section): `sp_trigger` (dword), `sp_len`, `sp_crc` (expected values,
+written into every client by the test tool before the trigger), `rs_apply`, `rs_pass`, `sp_saved_2994`,
+`sp_queue[2]` (wParam, lParam), `sp_flag_open`, `sp_flag_tail`, `sp_log[]` (CRC words + RNG per apply), RNG
+buffer 0x120 bytes.
 
-   Helpers: the guarded apply (§4.4: `[0x5a2990] = 0` before the dialog, file check against length + CRC32
-   logged by the host trigger, `[0x5a2994]` save/set/restore, re-entry flag, timer END TURN block, Fix Y slot
-   release, `[0x5a2990] = [0x5fd978]`), the host trigger (mask into `[0x5a2998]`, save, log length + CRC32,
-   0x89, `FUN_0050de40`, own apply), the four-call CRC/RNG logger. About 35–40 overwritten bytes plus helper
-   code and ~30 data bytes (queue entries are owned by the cave and freed after the apply). Spike
-   preconditions: all players idle (no END TURN, no dialogs except the tested ones), so no traffic/input gates
-   are needed; the 0x510278 hook is reserved for the protocol, not used in the spike. Acceptance: a client poked into
-   divergence before the transfer ends up with the host's state (CRC words and RNG logged and equal on all
-   five); local empires and the human mask unchanged; DirectPlay ids and the session unchanged; a corrupted
-   file is rejected; real orders and queues work afterwards and 10 turns stay in sync; the same with one
-   machine at −1 when the transfer starts, one with the system screen open, two transfers in a row (transport
-   state, pool counters), and once from a lobby-resumed game (`[0x5a2994] = 1` before and after the apply);
-   `[0x597504]` equals the loaded `[0x5a2b28]` before `FUN_00510ba0` (logged on every machine); a 0x72 that
-   arrives while BUSY (parked, reposted, then diverted); apply with an inactive window and with focus changes
-   during the apply; wParam of every received 0x400 logged against the player table (confirms the sender id the
-   fence relies on); a missing and a
-   truncated file (rejected, no load); production fields of a few systems (host, owner, third party) compared
-   before and after; ordinary traffic (0x68/0x74/0x71) after repeated loads; log the arrival order of numbered
-   test messages from two senders with artificial delay (evidence for per-sender ordering, not a proof).
-2. Production measurement (§5).
-3. Protocol §3–4 step by step: REQ/FREEZE/QUIET/NACK, then SNAPINFO/LOADED/RELEASE, then fence, then aborts/migration.
-4. Tests: forced divergence on a client and on the host (poke system +0x2dc), fast player before detection,
-   detection with system screen / "delete build?" dialog open, autosave off, drop and migration in each phase,
-   turn timer on (expiry during phases 2–4), inactive host window, long run with a forced divergence every
-   20 turns (leaks, pools, transfer time, latency build), regression (r2test, r3test, mtest, ytest, coltest,
-   optest, tacf).
+**Patch sites**
+
+| Site | Original bytes | Spike behaviour |
+|---|---|---|
+| 0x402201 | `56 56 56 56 53` | loop-top step: host with `sp_trigger` → host steps 3–5 of §4.5 (SNAPINFO replaced by logging len/CRC32), clear the trigger; re-dispatch one queued entry |
+| 0x50a709 | `66 89 04 24 8b 04 24` | queue 0x89/0x72 while `sp_trigger` is set on any machine or entries are queued; pass through when `rs_pass` |
+| 0x50dd76 | `e8 15 00 00 00` | raw-buffer check against `sp_len`/`sp_crc` (failure: free, skip, 0x50dd80, close dialog, log) |
+| 0x50dd7b | `e8 f0 fc ff ff` | apply helper (§4.4 steps 1–6, LOADED replaced by logging) |
+| 0x43d0f2, 0x43d0f7 | `e8 79 05 0d 00`, `e8 84 ca 0d 00` | skip while `rs_apply` |
+| 0x4387fb | `83 f8 01 74 05` | file-open flag |
+| 0x4389c0 | `e8 fb 3f 0e 00` | tail flag |
+| 0x4024d8 | `3b 35 d4 28 5a 00` | pump override while `rs_apply` |
+| 0x510002 | `83 bd c0 cf 5c 00 ff` | skip compares while `rs_apply` or entries are queued |
+| 0x4b9f6a (existing Fix K cave) | — | defer timer END TURN while `rs_apply` |
+
+Overwritten bytes ≈ 56 (+ the Fix K condition); helper code ≈ 400–600 bytes; data ≈ 0x120 + 64 bytes.
+The CRC32 is our own small bitwise routine (no stock one is used).
+
+**Procedures**
+1. Idle: all five idle; poke a divergence on client C (e.g. system +0x2dc); the tool writes `sp_len`/`sp_crc`
+   into every client after the host has saved (two-step trigger: host saves and logs, tool copies the values,
+   host sends); post a wake-up to the host if its window is inactive.
+2. Waiting: one client has ended its turn (−1) when the trigger fires.
+3. BUSY: a 0x72 arrives while a client processes (parked by Fix B, reposted, then queued).
+4. System screen open on a client; focus changes during the apply; inactive-window apply.
+5. Two transfers in a row; a lobby-resumed game (`[0x5a2994] = 1` before and after).
+6. Missing and truncated file (rejected, no load, buffer freed once, dialog closed).
+
+**Acceptance**: DirectPlay ids and the session unchanged; `[0x597504]` equals the loaded `[0x5a2b28]` before
+`FUN_00510ba0`; CRC words and RNG equal on all five after every apply; real orders, queues and 10 turns in sync
+afterwards; production fields of host-owned, client-owned and third-party systems compared; wParam of every
+received 0x400 logged against the player table; arrival order of numbered test messages from two senders with
+artificial delay logged.
 
 ## 8. Open questions
 
-- DirectPlay per-sender ordering of guaranteed messages (assumed for the fence) — confirm in the spike.
-- New PE section in the patcher vs. squeezing into the cave.
-- Whether a dropped human's slot needs special handling across a resync (Fix EL already releases it).
+- Replicating the stock error from the loop-top step (§3.6) — verify in the spike.
+- New PE section support in the patcher (all variants).
+- Exact deadline values after the spike's transfer-time measurements.
+
+---
+
+# Appendix: review history (non-normative)
+
+The tables below record what earlier drafts said and why it changed. They describe superseded designs
+(EDX pinning, PREPARE, silent REQ drops, forced activation, "eliminated humans always send 0x71", …) and
+are **not** part of the design; sections 1–8 above are authoritative.
 
 ## 9. Changes against v2 (review round 2)
 
@@ -484,3 +418,23 @@ from non-members are ignored. An unexpected 0x73 in a running game keeps its sto
 | transitions implicit | host marks its own QUIET and LOADED, enters phase 3 before the transfer; apply guard before any dialog work; failure cleans up and sends FAIL, never LOADED; only success enters phase 4; QUIET/LOADED carry the mask | Astra |
 | send counter not mentioned | `[0x5a075c]` is outside the saved block: (sender, counter) stay unique across a resync | Fable |
 | spike acceptance "search the receive record" | log wParam of every 0x400 against the player table | Fable |
+
+## 14. Changes against v7 (review round 7)
+
+| v7 | v8 | Source |
+|---|---|---|
+| sections accumulated patches from six rounds; history mixed with the design | consistent rewrite of sections 1–8; history moved to this non-normative appendix; "loop-top step" vs "TICK" separated | Fable, Astra |
+| phase 1 blocks turn start → a host still waiting for a late 0x68 can never finish turn T | REQ carries the target turn T; in phase 1 machines may finish turns up to T, not beyond; own completion recorded at the compare-loop gate (own71) | Astra (P1) |
+| apply cleanup "on every exit" led into recompute + LOADED; dialog possibly created twice | common cleanup vs. success-only recompute/LOADED; failure sends FAIL, never LOADED; pending ABORT has priority; dialog created only if `[0x597508] == 0`; raw-buffer failure closes the dialog | Astra (P1), Fable |
+| three membership definitions | one participant set P (human, not in `[0x5a2b50]`, player-table entry) fixed at FREEZE, carried in FREEZE and echoed in QUIET/LOADED; the stock mute filter cannot drop control traffic between members of P | Astra (P1) |
+| NACK with only an epoch, deadlines "several minutes", client "ABORT" | REQ/NACK carry requester id + seq; concrete deadline table with start events; client failure = FAIL + local stock error; host applies RELEASE/ABORT locally; stock error replicated from the loop-top step | Astra (P1), Fable |
+| queue model unspecified / contradictory | (wParam, lParam) pairs like the Fix B park, re-dispatched through `FUN_0050a6e0` with `rs_pass` so the stock receiver runs with the 0x50dd76/0x50dd7b hooks; 0x73 dropped during a transaction; 0x72 before SNAPINFO → FAIL | Fable |
+| raw-buffer failure "frees exactly once" | `FUN_00492e60(eax = buffer)`, skip both calls, jump to 0x50dd80 | Fable, Astra (verified) |
+| 0x510278 hook overwrote 13 bytes but resumed at 0x51027f | overwrite only the 7-byte cmp, resume at the intact `je` 0x51027f | Astra |
+| TICK said to be handled "in the dispatcher" | TICK only in the window proc (0x401507); timeouts checked in the loop-top step and the TICK handler | Fable |
+| "local input blocked until RELEASE" without a hook | removed with rationale (pre-load orders are dropped by the load; post-load orders are legitimate; END TURN stays blocked) | Fable |
+| `FUN_0050d070` "host branch" | only selects the dialog text | Fable |
+| teardown 0x43d0f2 unconditional; `[0x5a2b50]` "dead" as [V] | gated by `[0x5b1a88]`; "dead" is [I] (setter `FUN_0043cad0`), word in the saved block | Fable |
+| rate limit checked on the detecting machine | host only | Fable |
+| spike relied on §4.4 and the protocol; 35–40 bytes | self-contained spike: data layout, patch table with behaviour, two-step trigger with expected len/CRC written by the test tool, procedures for idle/waiting/BUSY, ≈ 56 overwritten bytes | Astra (P2), Fable |
+| risk 8 arithmetic | ≈ 1–1.5 KB with data → new PE section | Fable, Astra |
