@@ -13,6 +13,7 @@ from autoturn import (u32, i32, TURN_ADDR, BUSY_ADDR, TURN_BTN, ACTIVE_ADDR, Dia
 
 INST, seed, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 HEAVY = '--heavy' in sys.argv
+ASSAULT = '--assault' in sys.argv            # war in earnest: invasion missions for fleets at foreign systems
 os.makedirs(out, exist_ok=True)
 rnd = random.Random(seed * 10 + ord(INST))
 PID = H.load_state()[INST]
@@ -201,9 +202,24 @@ def fleets():
         if not icons:
             acts.append('nofleet'); continue
         x, y = rnd.choice(icons)
+        if ASSAULT and rnd.random() < 0.7:
+            # war in earnest: take the own fleet on screen that is closest to a foreign system and keep pushing it
+            try:
+                best = min(((targeted_course(ix, iy, icons), (ix, iy)) for ix, iy in icons),
+                           key=lambda t: t[0][2] if t[0] else 1e9)
+                if best[0]:
+                    x, y = best[1]
+            except OSError:
+                pass
         click((x, y), 0.8); acts.append('fleet%d,%d' % (x, y))     # selects the sector and its first task force
         r = rnd.random()
-        if r < 0.55:
+        try:
+            tc = targeted_course(x, y, icons) if ASSAULT and r < 0.55 and rnd.random() < 0.85 else None
+        except OSError:                                     # memory moved under us: plain course instead
+            tc = None
+        if tc:
+            click(tc[0], 0.6); acts.append('ATTACKCOURSE%d,%d->sys%d' % (tc[0][0], tc[0][1], tc[1]))
+        elif r < 0.55:
             dst = (min(760, max(270, x + 61 * rnd.randint(-4, 4))), min(410, max(50, y + 61 * rnd.randint(-3, 3))))
             click(dst, 0.6); acts.append('course%d,%d' % dst)
         elif r < 0.8 and mission_rows():
@@ -286,7 +302,7 @@ def diplomacy():
     x, y0, dy = d['races']
     k = rnd.randint(0, 3); click((x, y0 + dy * k), 0.6); acts.append('race%d' % k)
     click(d['propose'], 0.6)
-    a = rnd.choices(range(6), weights=[25, 10, 30, 15, 15, 5])[0]
+    a = rnd.choices(range(6), weights=[25, 10, 30, 15, 15, 40 if ASSAULT else 5])[0]   # assault: wars more often
     click(d['acts'][a], 0.9); acts.append(['friend', 'request', 'gift', 'affil', 'member', 'WAR'][a])
     if a == 2:
         for _ in range(rnd.randint(1, 4)):
@@ -337,6 +353,122 @@ def find_home():
     log('home system index', HOME_IDX, raw[HOME_IDX * 0x328 + 8:HOME_IDX * 0x328 + 0x28].split(bytes(1))[0] if own else '')
 
 
+def home_lost():
+    # the home world was conquered, rebelled or died out: pick a new one (a real player would not open a lost
+    # system either; writing a foreign system into the system screen selection is not a normal game state)
+    sp = struct.unpack('<I', H.readmem(PID, 0x5a36c8, 4))[0]
+    return H.readmem(PID, sp + HOME_IDX * 0x328 + 0x4c, 1)[0] != H.readmem(PID, 0x5a2b2a, 1)[0]
+
+
+def sectors_w():
+    return {0: 13, 1: 16, 2: 25}.get(struct.unpack('<I', H.readmem(PID, 0x5a36b8, 4))[0], 13)
+
+
+def system_at(x, y):
+    # FUN_0043dab0: sector record [0x5a36d8] + (W*x + y) * 0x68, system index word at +0xc (-1: none)
+    sec = struct.unpack('<I', H.readmem(PID, 0x5a36d8, 4))[0] + (sectors_w() * x + y) * 0x68
+    return struct.unpack('<h', H.readmem(PID, sec + 0xc, 2))[0]
+
+
+def ui_fleets():
+    # the UI copy of the task forces [0x5b2358] (what the fleet screens edit; END TURN turns differences into
+    # fleet orders, FUN_004667d0): record 0x6c, +0x2c mission, +0x30 mission parameter, +0x34 owner, +0x38 x, +0x3c y
+    obj = struct.unpack('<I', H.readmem(PID, 0x5b2358, 4))[0]
+    base, size, n = struct.unpack('<I', H.readmem(PID, obj + 0x20, 4))[0], struct.unpack('<I', H.readmem(PID, obj + 0x10, 4))[0],         struct.unpack('<I', H.readmem(PID, obj + 0x18, 4))[0]
+    raw = H.readmem(PID, base, size * n)
+    return [(base + i * size, raw[i * size:(i + 1) * size]) for i in range(n)]
+
+
+MAP_L, MAP_T, CELL, MAP_COLS, MAP_ROWS = 269, 49.5, 60.5, 8, 6        # small galaxy map: grid origin, cell size
+
+
+def sector_systems():
+    # system index of every sector: [0x5a36d8] + (25*row + col) * 0x68 (W from the galaxy size), +0xc
+    # galaxy width/height from the map view [[0x595554]+0x6c] +0x14/+0x18 (25 x 18 on a large galaxy)
+    v = struct.unpack('<I', H.readmem(PID, struct.unpack('<I', H.readmem(PID, 0x595554, 4))[0] + 0x6c, 4))[0]
+    W, rows = struct.unpack('<ii', H.readmem(PID, v + 0x14, 8))
+    if W != sectors_w() or not 0 < rows <= 40:
+        return W, {}
+    sec = struct.unpack('<I', H.readmem(PID, 0x5a36d8, 4))[0]
+    raw = H.readmem(PID, sec, W * rows * 0x68)
+    return W, {(i // W, i % W): struct.unpack_from('<h', raw, i * 0x68 + 0xc)[0] for i in range(W * rows)}
+
+
+def targeted_course(x, y, icons):
+    # the selected own task force (emblem at x, y) flies towards the nearest foreign system. The map origin is
+    # found from the emblems on screen: each own task force sits in a known sector (+0x38 row, +0x3c column)
+    loc = H.readmem(PID, 0x5a2b2a, 1)[0]
+    own = [struct.unpack_from('<ii', r, 0x38) for a, r in ui_fleets() if r[0x34] == loc]
+    if not own:
+        return None
+    cells = [(int((iy - MAP_T) // CELL), int((ix - MAP_L) // CELL)) for ix, iy in icons]
+    votes = {}
+    for cr, cc in cells:
+        for r, c in own:
+            votes[(r - cr, c - cc)] = votes.get((r - cr, c - cc), 0) + 1
+    (orow, ocol), n = max(votes.items(), key=lambda kv: kv[1])
+    sel = (int((y - MAP_T) // CELL) + orow, int((x - MAP_L) // CELL) + ocol)
+    if sel not in own:
+        return None
+    sp = struct.unpack('<I', H.readmem(PID, 0x5a36c8, 4))[0]
+    W, systems = sector_systems()
+    foreign = [(rc, si) for rc, si in systems.items() if si >= 0
+               and H.readmem(PID, sp + si * 0x328 + 0x4c, 1)[0] not in (loc, 0x23)]
+    if not foreign:
+        return None
+    (tr, tc), si = min(foreign, key=lambda f: abs(f[0][0] - sel[0]) + abs(f[0][1] - sel[1]))
+    # target cell on screen, clamped to the visible part of the map (fly partway when it is off screen)
+    # at most 3 sectors per course (a click outside the fleet's range is ignored by the game), then clamp to
+    # the visible part of the map
+    step = lambda d: max(-3, min(3, d))
+    gr, gc = sel[0] + step(tr - sel[0]), sel[1] + step(tc - sel[1])
+    vr = min(MAP_ROWS - 1, max(0, gr - orow)); vc = min(MAP_COLS - 1, max(0, gc - ocol))
+    dist = abs(tr - sel[0]) + abs(tc - sel[1])
+    return (int(MAP_L + (vc + 0.5) * CELL), int(MAP_T + (vr + 0.5) * CELL)), si, dist
+
+
+def intel():
+    # intelligence screen (F3): redistribute internal security / espionage / sabotage per target. The screen's
+    # data [[0x5cb4b4]+0x1c..+0x3c] (security, espionage x4, sabotage x4 in %) is what the sliders write; leaving
+    # the screen commits it (0x4bcb90: intel order of type 4 + the player's own intel record)
+    key(0x70); nap(0.4); key(0x72); nap(1.0)
+    ui = struct.unpack('<I', H.readmem(PID, 0x5cb4b4, 4))[0]
+    old = [struct.unpack('<i', H.readmem(PID, ui + 0x1c + 4 * i, 4))[0] for i in range(9)]
+    if sum(old) != 100:
+        key(0x70); nap(0.4); return ['intel?%s' % old]
+    sec = rnd.choice([30, 40, 50, 60, 70, 80, 100])
+    vals = [sec] + [0] * 8
+    for _ in range((100 - sec) // 10):
+        vals[rnd.randint(1, 8)] += 10
+    for i, v in enumerate(vals):
+        H.writemem(PID, ui + 0x1c + 4 * i, struct.pack('<i', v))
+    key(0x70); nap(0.6)
+    return ['INTEL%s' % ','.join(map(str, vals))]
+
+
+def assault():
+    # war in earnest: every own task force that stands in a sector with a foreign system gets the invasion
+    # mission 0x0e (bombard, then invade with troop transports), "conquer" (+0x30 = 1), exactly what the fleet
+    # mission dialog writes (0x4ebd53 / 0x4ebc22); the game sends it as a fleet order at END TURN
+    loc = H.readmem(PID, 0x5a2b2a, 1)[0]
+    sp = struct.unpack('<I', H.readmem(PID, 0x5a36c8, 4))[0]
+    acts = []
+    for addr, r in ui_fleets():
+        if r[0x34] != loc:
+            continue
+        mission = struct.unpack_from('<i', r, 0x2c)[0]
+        x, y = struct.unpack_from('<ii', r, 0x38)
+        s = system_at(x, y)
+        if s < 0:
+            continue
+        owner = H.readmem(PID, sp + s * 0x328 + 0x4c, 1)[0]
+        if owner in (loc, 0x23) or mission == 0x0e:
+            continue
+        H.writemem(PID, addr + 0x2c, struct.pack('<ii', 0x0e, 1 if rnd.random() < 0.8 else 2))
+        acts.append('ASSAULT tf%d sys%d(owner %d)' % (struct.unpack_from('<I', r, 0)[0], s, owner))
+    return acts
+
+
 def open_home():
     # galaxy map, select the home world (UI selection [[0x595da8]+0x1c], same effect as clicking it), F2
     key(0x70); nap(0.4)
@@ -374,10 +506,10 @@ def main():
             nap(0.5); continue
         nap(rnd.uniform(1.5, 4.0))                      # look at the new turn, read events
         handle_dialogs(dlg, INST, PID, log)
-        if HOME_IDX is None:
+        if HOME_IDX is None or home_lost():
             find_home()
         pre = swap_new_build()
-        steps = [browse, fleets, production] + ([diplomacy] if rnd.random() < 0.35 else [])
+        steps = [browse, fleets, production] + ([diplomacy] if rnd.random() < (0.5 if ASSAULT else 0.35) else []) + ([assault] if ASSAULT else []) + ([intel] if ASSAULT and rnd.random() < 0.3 else [])
         rnd.shuffle(steps)
         acts = list(pre)
         for f in steps:

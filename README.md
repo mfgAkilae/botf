@@ -57,6 +57,11 @@ session. Player reports of the late-game bug almost always show the same signatu
 | **Y** | **A player leaves after ending the turn.** His orders wait in a receive slot; when he drops, the slot is emptied but stays marked as used, and the turn barrier waits for every used slot. The remaining players wait for ever. | Reproduced (`tools/ytest.sh`): E ends the turn and is killed; after the drop A–D end the turn: the original hangs, with Y the turn is calculated and A–D stay in sync for 3 more turns. Found by a static code review. | The slot is released like at the end of a turn; in addition the barrier only waits for human players still in the game. |
 | **Q** | **A colonize order whose colony ship was destroyed in combat** (other ships of the fleet survive): the colonize step looks up the missing ship and reads through a null pointer: crash, everybody else sees "Disconnected". | Reproduced by injection (`tools/coltest.sh`, `tools/colinject.py`: the first colonize of a new game finds no colony ship): both games of the original crash in turn 1; with Q the order is dropped and the game stays in sync. Found by a static code review. | A missing colony ship takes the existing "cannot colonize" exit before anything is changed. |
 | **G** | **System screen on a system that is not the player's.** The system screen lists the shown system's sister systems by walking the system list of the system's *owner* without checking it; when the shown system belongs to a minor race, rebels or nobody, the list is read from the wrong memory: access violation, "Disconnected" for everybody else. | Found by the agents (new 5-player game, player B crashed at turn 179 after F2, `0x51b429`). Reproduced by injection (`tools/sysscr_inject.py`): the original crashes exactly like B; with G the screen shows the player's own system. How B's screen got a foreign system in normal play is not known (the game normally resets it). | A shown system that is not the player's is replaced by the player's first system; the list walks are skipped for owner ≥ 5. |
+| **OP** | **Closing the options dialog while waiting changes the game's rules on one machine.** ACCEPT or Escape in the options dialog copies tactical-combat mode and random events from the player's own preferences into the running game, but the change is only broadcast by an idle player. A player who opens the options while waiting for the others (or during turn processing) switches random events or manual combat on his machine only. | Reproduced (`tools/optest.sh`): client B with the opposite random-events preference opens and accepts the options while waiting: heartbeat mismatch from the first turn on the original, in sync for 5 turns with OP. Found by a static code review. | In multiplayer the two values are written only when the broadcast follows. |
+| **F** | **Monster combat AI reads uninitialised memory.** The combat unit array is not cleared on allocation; ships set a flag at +0x364, monsters never do, but the AI of one monster race and of the Edo Guardian tests it to decide whether to attack. Leftover heap contents differ between machines. | Static code review; regression: the Edo Guardian combat (`tools/tacf.sh`) runs and stays in sync. Only combats computed on several machines (several human participants with a monster) are exposed; not reproduced. | The unit array is cleared after allocation. |
+| CA | **Conquering the last system of an empire when it is its original capital** read a word at address 0 (empty system list): crash on every machine. | Static code review. | An empty list stores the game's "no home system" value. |
+| EL | **Orders of an eliminated player** (whose game stays open) were still merged, in different turns on different machines. | Static code review. | Receive slots of players no longer in the human mask are released instead of merged. |
+| IN | **Intel allocations committed after END TURN** changed an already sent order in place and the player's own record at once. | Static code review (the function keys are blocked while waiting; the screens can still be reached with the mouse). | The commit is skipped while the turn is not idle. |
 | **X** | **Wormholes.** The exit position of a fleet that flies through a wormhole was converted with the local galaxy-map view (scroll and zoom of that player's screen), so the fleet could come out in different sectors on different machines. | Static code review; regression only (no wormhole in our test galaxies). | The conversion gets a fixed view, the same on every machine. |
 | W3 | The ship name list belongs to the program and was not reset on load (same class as W). | Static code review; regression only. | Reset when a game is loaded. |
 | P | **Changing conquer/liberate on a running invasion is lost.** At End Turn the game only sends a fleet order when something it compares has changed; the conquer/liberate choice was compared for one mission type only. The old choice was executed (on every machine, so no sync error). | Static code review (found independently by two reviews). | The choice is compared for the invasion mission as well. |
@@ -79,7 +84,7 @@ longer a game runs, the more likely one machine drops out.
 Test bed: five game instances on one PC, each with its own human empire, connected over DirectPlay.
 Five independent player agents (`tools/player.py`) play simultaneously like humans: production, buying,
 labour, re-planning builds, diplomacy (gifts, friendship, affiliation, membership, declarations of war),
-fleets (the agent finds its own task forces on the galaxy map by the race emblem, sets courses and gives
+fleets (the agent finds its own task forces on the galaxy map by the race emblem, clicks course targets and gives
 missions such as attack, raid, colonize, terraform, train crew), clicking around while waiting. An observer (`tools/observer.py`)
 compares all games and the heartbeat checksums after every turn and attaches a debugger to catch
 crashes.
@@ -109,7 +114,7 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | Edo Guardian combat (`tools/tacedo.sh`) | original / with T | 293, first combat round | `assault.c:562` crash / no crash, in sync to 295 |
 | monster countdown (A started with 2) | original / with W | 103 → 107 | sync error at 105 / in sync |
 | war5_tac2..5: manual tactical combat, 5 humans | v1.2.0 + T | 280 → 390 | no break; ~80 tactical combat rounds (B, C, E), monsters, wars |
-| war5_01: new small spiral galaxy, 5 humans | v1.2.0 | 0 → 300 | no break: per player ~250 ships ordered, ~100 purchases, up to 400 fleet courses and 200 missions, ~100 diplomatic actions on three players, 16 declarations of war, monsters and random events on |
+| war5_01: new small spiral galaxy, 5 humans | v1.2.0 | 0 → 300 | no break: per player ~250 ships ordered, ~100 purchases, up to 400 fleet course clicks (many of them did not set a course, see below) and 200 missions, ~100 diplomatic actions on three players, 16 declarations of war, monsters and random events on |
 | player drop after ending the turn (`tools/ytest.sh`) | original / v1.6 | 103 → 107 | turn barrier hangs for ever / in sync |
 | colonize without colony ship (`tools/coltest.sh`) | original / v1.6 | new 2-player game | both games crash in turn 1 / 7 turns in sync (4 colonizations) |
 | war5_v15c/d: 5 humans, manual tactical combat for all races | v1.5.0 | 160 → 200 | no break |
@@ -119,6 +124,8 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | new5_g: same game from the turn-160 save | v1.6.1 | 160 → 300 | no break (51 tactical combat rounds) |
 | new5b_v161: new game, small spiral galaxy, 5 humans, manual tactical combat | v1.6.1 | 0 → 300 | no break (49 tactical combat rounds) |
 | ai2_v16 / ai2b_v16: new games, 2 humans + 3 computer empires | v1.6.0 | 0 → 63 / 0 → 66 | no break; both ended when the computer empires eliminated a human player |
+| options while waiting (`tools/optest.sh`) | v1.6.1 / v1.7 | 103 → 109 | mismatch from turn 104 / in sync |
+| lat_v17b: ring galaxy, 5 humans, 40 ms per packet, intel and war agents (`PLAYER_FLAGS=--assault`) | v1.7 (latency build) | 180 → 300 | no break |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
 sends its own state to everybody). A save made after the problem does not show the problem any more.
@@ -144,8 +151,13 @@ sends its own state to everybody). A save made after the problem does not show t
   other machines really compute different values in that event, but in seven forced scenarios
   (`tools/r1test.sh`, `tools/r1force.py`) the build still completed in the same turn everywhere, so no
   sync error. Not changed.
-- Not exercised by the agents yet: intelligence and research allocation (their sliders did not react to
-  simulated input), invasions.
+- Agent limitation found late: a click on a sector after selecting a task force on the galaxy map often does
+  not set a course (the task force's path stays empty), so the "course" counts in the runs above overstate
+  fleet movement. Fleets did move (missions, some courses), and invasions and eliminations happened in the
+  games with computer empires, but human-ordered invasions were not reached by the agents.
+- Not exercised by the agents yet: research allocation (its sliders do not react to simulated input) and
+  human-ordered invasions. Intelligence allocation is exercised since v1.7 (`--assault` agents write the
+  intel screen's data like the sliders do and leave the screen, which commits it).
 - Not fixed (rare, not reproducible on one PC): a player dropping out is handled at different points on each
   machine when the machines notice the drop at different times (needs three or more humans; on one PC the
   remaining four stayed in sync, `tools/droptest.sh`); x87 `FSIN/FCOS` in combat geometry might differ

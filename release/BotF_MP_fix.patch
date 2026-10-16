@@ -43,8 +43,12 @@ DESC: O) all stations of an eliminated empire are removed (one of two neighbours
 DESC: P) changing conquer/liberate of a running invasion is no longer lost.
 DESC: Q) a colonize order of a fleet whose colony ship was destroyed in combat no longer crashes.
 DESC: G) the system screen no longer crashes when it shows a system the player does not own.
+DESC: OP) closing the options dialog while waiting no longer switches random events or manual combat on one machine.
+DESC: F) monsters in tactical combat no longer decide on leftover memory (combat units start zeroed).
+DESC: CA) conquering the last system of an empire when it is its original capital no longer crashes.
+DESC: EL) orders of an eliminated player are no longer merged; IN) intel changes after END TURN are ignored.
 DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.
-DESC: Uses the free code area 0x516e60-0x517620 (file 0x116260) and .bss 0x6896e0-0x689800.
+DESC: Uses the free code area 0x516e60-0x517750 (file 0x116260) and .bss 0x6896e0-0x689800.
 DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.
 DESC: patch file name: BotF_MP_fix.patch
 TAG: fix
@@ -77,6 +81,9 @@ TAG: fix
 
 >> 0x04f438 89 15 E4 FD 58 00
 << 0x04f438 E8 F3 72 0C 00 90
+
+>> 0x0552f7 8B 99 70 48 5B 00 85 DB 0F 85 F6 00 00 00
+<< 0x0552f7 E9 64 17 0C 00 90 90 90 90 90 90 90 90 90
 
 >> 0x0555dd 88 D0 5A 59 C3
 << 0x0555dd E9 2E 13 0C 00
@@ -134,6 +141,9 @@ TAG: fix
 >> 0x065b18 83 78 2C 01 0F 85 87 00 00 00
 << 0x065b18 E9 03 0E 0B 00 90 90 90 90 90
 
+>> 0x0672a5 66 8B 51 44 66 8B 00
+<< 0x0672a5 E9 96 F7 0A 00 90 90
+
 >> 0x068d52 E8 A9 E8 06
 << 0x068d52 B8 C0 74 51
 
@@ -145,6 +155,15 @@ TAG: fix
 
 >> 0x0b936a C7 05 5C 30 59 00 01 00 00 00
 << 0x0b936a E9 01 D5 05 00 90 90 90 90 90
+
+>> 0x0bbf90 51 52 53 A1 B4 32 59 00
+<< 0x0bbf90 E9 9B AB 05 00 90 90 90
+
+>> 0x0ccfdc A3 68 2B 5A
+<< 0x0ccfdc E9 EF 9A 04
+
+>> 0x0ccff1 A2 46 2B 5A
+<< 0x0ccff1 E9 0A 9B 04
 
 >> 0x0f6a47 8B 35 A8 5D 59 00
 << 0x0f6a47 E9 24 FF 01 00 90
@@ -440,6 +459,52 @@ TAG: fix
 >> 0x116a10 00 00 00
 << 0x116a00 31 D2 8A 53 4C 80 FA 05 0F 83 74 05 FE FF E9 3F
 << 0x116a10 05 FE FF
+
+>> 0x116a20 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116a30 00 00 00 00 00 00 00 00 00
+<< 0x116a20 51 50 E8 E9 B8 F7 FF 59 85 C0 74 0B 57 50 89 C7
+<< 0x116a30 31 C0 FC F3 AA 58 5F 59 C3
+
+>> 0x116a40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116a50 00 00 00 00 00 00 00 00 00
+<< 0x116a40 66 8B 51 44 85 C0 74 08 66 8B 00 E9 5C 08 F5 FF
+<< 0x116a50 66 B8 80 3E E9 53 08 F5 FF
+
+>> 0x116a60 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116a70 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116a80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116a90 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116aa0 00 00 00 00 00 00 00 00
+<< 0x116a60 8B 99 70 48 5B 00 85 DB 74 4C 50 52 0F B6 91 74
+<< 0x116a70 48 5B 00 83 FA 08 73 43 B8 01 00 00 00 51 88 D1
+<< 0x116a80 D3 E0 59 84 05 28 2B 5A 00 75 30 8B 81 70 48 5B
+<< 0x116a90 00 E8 8A 3E 00 00 8B 81 70 48 5B 00 31 D2 E8 AD
+<< 0x116aa0 3D 00 00 C7 81 70 48 5B
+
+>> 0x116aad 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116abd 00 00 00 00 00
+<< 0x116aad C6 81 74 48 5B 00 FF 5A 58 E9 4A E8 F3 FF 5A 58
+<< 0x116abd E9 39 E9 F3 FF
+
+>> 0x116ad0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116ae0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116af0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116b00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116b10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116b20 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116b30 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+>> 0x116b40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+<< 0x116ad0 83 3D 24 29 5A 00 00 74 1B 83 3D 20 29 5A 00 00
+<< 0x116ae0 74 17 83 3D 90 29 5A 00 00 74 0E 83 3D 1C 29 5A
+<< 0x116af0 00 00 75 05 A3 68 2B 5A 00 E9 E3 64 FB FF 00 00
+<< 0x116b00 83 3D 24 29 5A 00 00 74 1B 83 3D 20 29 5A 00 00
+<< 0x116b10 74 17 83 3D 90 29 5A 00 00 74 0E 83 3D 1C 29 5A
+<< 0x116b20 00 00 75 05 A2 46 2B 5A 00 E9 C8 64 FB FF 00 00
+<< 0x116b30 83 3D 24 29 5A 00 00 74 09 83 3D 1C 29 5A 00 00
+<< 0x116b40 75 0D 51 52 53 A1 B4 32 59 00 E9 49 54 FA FF C3
+
+>> 0x12022f DD 20 F7
+<< 0x12022f ED 67 FF
 
 >> 0x14cf13 6A FF 57 2E FF 15 C0 45 57 00 3D 02 01 00 00 74
 >> 0x14cf23 09

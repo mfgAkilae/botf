@@ -957,5 +957,153 @@ def apply(p):
     # 0x4f7b4d: xor edx,edx / mov dl,[ebx+0x4c] (5 bytes)
     p.patch(0x4f7b4d, '31d28a534c', jmp_rel(0x4f7b4d, sysb))
 
+    # ---- Fix F: combat units start zeroed, so monsters decide the same way on every computer -----------------
+    # The combat unit array [0x597864] ([0x602b14] units of 0x3c8 bytes) is allocated at 0x520e2e with
+    # FUN_00492f10, which does not clear the memory. Ships set +0x364 to 0 (0x521616), monsters (type 7) never do,
+    # but the monster combat AI FUN_0047715c tests +0x364 bit 0 for race 0x26 (0x4771bd) and for the Edo Guardian
+    # (0x477481): set means passive this round. The byte is whatever an earlier allocation left in that heap
+    # block, which differs between computers, so a monster could attack on one machine and hold back on another:
+    # different combat random numbers, battle checksum failure, "Disconnected". Found by a static code review
+    # (Codex gpt-6-astra). The array is now cleared after the allocation (like calloc); every other field is
+    # still set by the unit initialisation as before.
+    unitzero = put('unitzero', '''
+        push ecx
+        push eax
+        call 0x492f10
+        pop ecx
+        test eax, eax
+        je done
+        push edi
+        push eax
+        mov edi, eax
+        xor eax, eax
+        cld
+        rep stosb
+        pop eax
+        pop edi
+    done:
+        pop ecx
+        ret
+    ''')
+    # 0x520e2e: call FUN_00492f10 (eax = size)
+    p.patch(0x520e2e, call_rel(0x520e2e, 0x492f10), call_rel(0x520e2e, unitzero))
+
+    # ---- Fix CA: conquering the last system of an empire when it is its original capital ------------------
+    # After an invasion (FUN_00466cf0) the loser's home-system entry [0x5b2360 + emp*2] is set to the first
+    # system of its system list (0x467e9b: list [emp record + 0x50], FUN_0051bb00 = first entry or 0). When the
+    # conquered capital was the empire's last system the list is already empty and 0x467ea9 reads the word at
+    # address 0: access violation on every computer, the game ends for everybody. Found by a static code review
+    # (Claude Fable). An empty list now stores 0x3e80, the game's own "no home system" value (0x467f4d).
+    capnone = put('capnone', '''
+        mov dx, word ptr [ecx+0x44]
+        test eax, eax
+        je none
+        mov ax, word ptr [eax]
+        jmp 0x467eac
+    none:
+        mov ax, 0x3e80
+        jmp 0x467eac
+    ''')
+    # 0x467ea5: mov dx,[ecx+0x44] / mov ax,[eax] (7 bytes)
+    p.patch(0x467ea5, '668b5144668b00', jmp_rel(0x467ea5, capnone) + b'\x90' * 2)
+
+    # ---- Fix EL: orders of an eliminated (or dropped) player are no longer merged ---------------------------
+    # An eliminated human keeps his game open; his machine never calculates a turn again, but END TURN (or the turn
+    # timer) still sends his whole order list (message 0x68, FUN_00458120 -> FUN_00456340). The receivers file it
+    # in a receive slot and the merge FUN_00455ec0 takes every slot with a list, whatever the sender. Because that
+    # message is not part of the turn barrier any more (Fix Y), it arrives before the turn on one machine and after
+    # it on another: the same diplomacy/intel orders are applied in different turns -> sync error. Found by a
+    # static code review (Claude Fable). The merge now takes a slot only if its player is still in the human mask
+    # [0x5a2b28]; other slots are released like at the end of a merge (list destroyed, pointer 0, empire 0xff).
+    # A player eliminated during a turn is still in the mask when that turn's orders are merged.
+    elmerge = put('elmerge', '''
+        mov ebx, dword ptr [ecx+0x5b4870]
+        test ebx, ebx
+        je next
+        push eax
+        push edx
+        movzx edx, byte ptr [ecx+0x5b4874]
+        cmp edx, 8
+        jae keep
+        mov eax, 1
+        push ecx
+        mov cl, dl
+        shl eax, cl
+        pop ecx
+        test al, byte ptr [0x5a2b28]
+        jne keep
+        mov eax, dword ptr [ecx+0x5b4870]
+        call 0x51b520
+        mov eax, dword ptr [ecx+0x5b4870]
+        xor edx, edx
+        call 0x51b450
+        mov dword ptr [ecx+0x5b4870], 0
+        mov byte ptr [ecx+0x5b4874], 0xff
+        pop edx
+        pop eax
+    next:
+        jmp 0x455f05
+    keep:
+        pop edx
+        pop eax
+        jmp 0x455ffb
+    ''')
+    # 0x455ef7: mov ebx,[ecx+0x5b4870] / test ebx,ebx / jne 0x455ffb (14 bytes)
+    p.patch(0x455ef7, '8b9970485b0085db0f85f6000000', jmp_rel(0x455ef7, elmerge) + b'\x90' * 9)
+
+    # ---- Fix OP: closing the options dialog no longer changes the game's rules on one machine only ----------
+    # FUN_004cdb80 (ACCEPT or Escape in the options dialog) copies the dialog's tactical-combat mode and random-
+    # events switch into the running game ([0x5a2b68] at 0x4cdbdc, [0x5a2b46] at 0x4cdbf1), but only the host
+    # in the idle state broadcasts them afterwards (0x4cdc4f..0x4cdc6e: message 0x85). The dialog is filled from
+    # the local preferences, not from the game: a client that opens and closes the options (or a host that does
+    # it while waiting for the others) silently switches random events or manual combat on his machine only ->
+    # different random numbers -> sync error. Found by a static code review (Codex gpt-6-astra). In multiplayer
+    # the two game values are now written only when the broadcast follows (host, session flag, idle); the local
+    # preferences are still saved as before.
+    def opt_guard(name, store, back):
+        return put(name, f'''
+        cmp dword ptr [0x5a2924], 0
+        je write
+        cmp dword ptr [0x5a2920], 0
+        je skip
+        cmp dword ptr [0x5a2990], 0
+        je skip
+        cmp dword ptr [0x5a291c], 0
+        jne skip
+    write:
+        {store}
+    skip:
+        jmp {back:#x}
+    ''')
+    opt_tac = opt_guard('opt_tac', 'mov dword ptr [0x5a2b68], eax', 0x4cdbe1)
+    opt_rev = opt_guard('opt_rev', 'mov byte ptr [0x5a2b46], al', 0x4cdbf6)
+    # 0x4cdbdc: mov [0x5a2b68],eax (5 bytes); 0x4cdbf1: mov [0x5a2b46],al (5 bytes)
+    p.patch(0x4cdbdc, 'a3682b5a00', jmp_rel(0x4cdbdc, opt_tac))
+    p.patch(0x4cdbf1, 'a2462b5a00', jmp_rel(0x4cdbf1, opt_rev))
+
+    # ---- Fix IN: intel allocations are not committed while the turn is out of the player's hands -----------
+    # Leaving the intel screen commits the sliders (0x4bcb90): an intel order of type 4 is created or an existing
+    # pending one is changed in place (0x4bc3e0 -> FUN_00457644), and the player's intel record is written at once
+    # (0x47f190). After END TURN the order list has already been sent, so an in-place change and the direct write
+    # stay on the player's machine only. The function keys are blocked while waiting, but the screens can still be
+    # reached with the mouse. Found by a static code review (Claude Fable). In multiplayer the commit is now
+    # skipped while the turn state [0x5a291c] is not idle (the change is dropped on every machine alike).
+    intelcommit = put('intelcommit', '''
+        cmp dword ptr [0x5a2924], 0
+        je go
+        cmp dword ptr [0x5a291c], 0
+        jne skip
+    go:
+        push ecx
+        push edx
+        push ebx
+        mov eax, dword ptr [0x5932b4]
+        jmp 0x4bcb98
+    skip:
+        ret
+    ''')
+    # 0x4bcb90: push ecx / push edx / push ebx / mov eax,[0x5932b4] (8 bytes)
+    p.patch(0x4bcb90, '515253a1b4325900', jmp_rel(0x4bcb90, intelcommit) + b'\x90' * 3)
+
     out["code_end"] = code
     return out
