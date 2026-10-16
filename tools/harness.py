@@ -247,7 +247,7 @@ def hold(name, pid, seconds=120):
     if not lay:
         return
     r = wintypes.RECT(); t0 = time.time()
-    while time.time() - t0 < seconds and pid_alive(pid):
+    while (seconds <= 0 or time.time() - t0 < seconds) and pid_alive(pid):
         ws = [w for w in windows_of(pid) if w[3]]
         if ws:
             hw = max(ws, key=lambda w: w[4] * w[5])[0]
@@ -255,7 +255,7 @@ def hold(name, pid, seconds=120):
             w, h = r.right - r.left, r.bottom - r.top
             if (r.left, r.top) != (lay[0], lay[1]) and abs(w - lay[2]) < 40 and abs(h - lay[3]) < 40:
                 user32.SetWindowPos(hw, 0, lay[0], lay[1], 0, 0, 0x0001 | 0x0004 | 0x0010 | 0x0400)
-        time.sleep(0.1)
+        time.sleep(0.1 if time.time() - t0 < 120 else 0.5)   # fast while the game starts, then keep watching
 
 
 def main(argv):
@@ -269,8 +269,8 @@ def main(argv):
         st[name] = p.pid
         save_state(st)
         print('pid', p.pid)
-        # detached watcher: places the window as soon as it opens and keeps it there while the game starts
-        subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), 'hold', name, str(p.pid)],
+        # detached watcher: places the window as soon as it opens and keeps it there while the game runs
+        subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), 'hold', name, str(p.pid), '0'],
                          creationflags=0x00000008 | 0x00000200, close_fds=True)
         place(name, p.pid)
         return
