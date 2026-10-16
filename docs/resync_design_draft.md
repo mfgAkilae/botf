@@ -1,9 +1,9 @@
-# DRAFT v6: self-healing multiplayer ("resync instead of synchronization error")
+# DRAFT v7: self-healing multiplayer ("resync instead of synchronization error")
 
-Status: design draft after five review rounds (Claude Fable, Codex gpt-6-astra); not implemented. Round 5
-verdict on v5: Fable "spike: go after three fixes; protocol: one more revision"; Astra "needs another revision;
-the spike remains worthwhile". v6 integrates all round-5 findings (section 12); sections 9–11 keep the
-earlier rounds' changes.
+Status: design draft after six review rounds (Claude Fable, Codex gpt-6-astra); not implemented. Round 6
+verdict on v6: Fable "ready for the spike; with five text replacements also ready for implementation, no
+design change required"; Astra "needs another revision (two P1 items); the spike remains worthwhile". v7
+integrates all round-6 findings (section 13); sections 9–12 keep the earlier rounds' changes.
 Addresses: trek.exe 2.0.4 EN. [V] = verified in the disassembly (by a reviewer or by us), [I] = inference.
 
 ## 1. Goal
@@ -93,12 +93,21 @@ Players lose at most the input of the current turn. All players must use the pat
 - **Activation flag** [V]: `[0x5a28d4]` is written only by the WM_ACTIVATEAPP handler `FUN_00401cc0`, which runs
   sound/input transitions on a change (0x401cd0..0x401d4f), and read by the three pump decisions (0x402328,
   0x4023a0, 0x4024d8).
-- **Network message identity** [V/I]: the dispatcher gets wParam = receive record +0x20 and lParam = record +0x10
-  (0x54debf, 0x54de2f, 0x54d7cc); network ids are resolved through the receive bookkeeping at 0x50a704, before
-  the Fix B hook at 0x50a709. Whether the record (built by `FUN_0054e300`) holds the DirectPlay idFrom is not
-  verified [I]; body-based sender ids are known only for 0x71 (+0x124).
-- **Receive-thread tick** [V]: Fix D already wakes the receive thread every 1000 ms (rxwait); PostMessage
-  through IAT_POSTMSG is what the Fix B flush uses; an unknown message id falls through the stock switch.
+- **Sender identity** [V] (settled in round 6): every game message carries a wire header written by the sender
+  in `FUN_0054df90`; **header +0x20 = the sender's player id `[0x5fd8c4]`** (loaded at 0x519976), +0x10 = the
+  sender's message counter `[0x5a075c]`. The receiver posts wParam = header +0x20, lParam = header +0x10
+  (0x54debf, 0x54de2f, 0x54d7cc..0x54d7da). The DirectPlay idFrom of Receive is discarded (`FUN_0054d770`,
+  0x54d791). The dispatcher's first call `FUN_00510600(eax = wParam)` (0x50a6ef) matches wParam against the
+  player table 0x5a29f8 (5 × 0x34, field +0x28) and reads the empire byte +0x2c. At the Fix B hook (0x50a709)
+  wParam is in **esi**, at 0x510278 in **ebx**. So the fence needs no per-type body decoder: key = wParam,
+  empire via +0x28 → +0x2c; for 0x71 the body empire (+0x124) must match. This is the sender's self-declared
+  id, sufficient for cooperating patched peers, not an authenticated idFrom [I]. `[0x5a075c]` lies outside the
+  saved block, so (sender, counter) stay unique across a resync.
+- **Window-message routing** [V]: the window proc routes only 0x400 and 0x402 to `FUN_0050a6e0` (0x4015e4..
+  0x40160e); other ids never reach the dispatcher. Fix D already wakes the receive thread every 1000 ms
+  (rxwait, netfix.py); PostMessage goes through `[0x57462c]` (IAT_POSTMSG) to `[0x5a074c]` (the main window). A
+  continuous receive stream can keep the receive thread inside its drain loop (0x54da77/0x54dad2) without
+  revisiting rxwait.
 - **Production** [V] (Astra): progress of the current build accumulates on every machine without an owner check
   (0x4624af, 0x460940..0x4609f0); only the re-arm of the next item is owner-dependent (0x4616e4).
 
@@ -110,13 +119,13 @@ Players lose at most the input of the current turn. All players must use the pat
 |---|---|---|---|
 | 0x8a REQ | any → host | last applied epoch, turn, local CRC words | "I saw a mismatch" |
 | 0x8b FREEZE | host → all | epoch, turn | start transaction `epoch`, install the gates |
-| 0x8c QUIET | all → all | epoch | "my freeze gates are active" (sent by the dispatcher on FREEZE) |
+| 0x8c QUIET | all → all | epoch, own view of `[0x5a2b28]` | "my freeze gates are active" (sent by the dispatcher on FREEZE) |
 | 0x8d SNAPINFO | host → all | epoch, file length, file CRC32 | metadata of the file that follows (0x89 + 0x72) |
-| 0x8e LOADED | all → all | epoch, recomputed CRC words + normalised RNG | "I applied the snapshot" (sent at the loop top) |
+| 0x8e LOADED | all → all | epoch, recomputed CRC words + normalised RNG, own view of `[0x5a2b28]` | "I applied the snapshot" (sent at the loop top; only after a successful apply) |
 | 0x8f RELEASE | host → all | epoch | "resume play" |
 | 0x90 ABORT | host → all | epoch | "transaction failed: old error" |
 | 0x91 NACK | host → requester | requester's epoch | "no transaction for you" (stale REQ): back to phase 0 |
-| 0x92 TICK | receive thread → own window | — | wake-up during a transaction (own window message, intercepted before the network-id lookup at 0x50a704; hook site to be chosen) |
+| TICK | receive thread → own window | — | wake-up during a transaction: private window message `WM_APP + 0x92`, intercepted in the window proc at 0x401507 (§4.2); not a network message |
 | 0x93 FAIL | any → host | epoch, reason | "my file check / load failed" → host sends ABORT |
 
 Snapshot transfer stays the stock 0x89 (dialog) + 0x72 (file). The host assigns the epoch (monotonic counter
@@ -141,8 +150,12 @@ last 0x71 from that empire (body +0x124), recorded by a hook at **0x510278** in 
 0x71 passes there, idle or not, in every phase; the same hook implements the phase gate (`rs_phase != 0` →
 jump to 0x5103f8, same stack frame). 0x71-complete := `[0x5a291c] != 1` (own completion; the own 0x71 is not
 received) and `rs_last71[h] == [0x5a2918]` for every human h ≠ self in `[0x5a2b28]`; the sender/empire mapping
-is checked against the player table 0x5a29f8. A turn-N 0x71 cannot satisfy N+1. Eliminated humans stay in the
-barrier mask and keep sending 0x71 (0x458143, 0x4581ab), so they do not block [V]. **0x71 proves simulation
+is checked against the player table 0x5a29f8. A turn-N 0x71 cannot satisfy N+1. **Eligibility** (round 6,
+Astra): empire-status bits can suppress turn processing and discard messages before the ledger hook (0x458196,
+0x50a6ef → `FUN_00510600` mute mask `[0x5a2b50]`, 0x510626..0x510669), so the earlier claim "eliminated humans
+always send 0x71" is not established. The host therefore waits only for **eligible** members — humans in the
+mask that are not marked dead in `[0x5a2b50]` and have a player-table entry — and aborts on any membership
+state it cannot classify. **0x71 proves simulation
 progress, not quiescence**: every machine has then finished the turn's processing including tactical combats
 and their 0x86 exchange (all pumping steps precede the send), but it may still be inside a modal screen opened
 afterwards; FREEZE only installs gates, the load waits for each machine's loop top (§4.2), covered by the
@@ -183,9 +196,8 @@ epoch. The fence check runs **before any queue that can reorder** (the Fix B par
 purged at FREEZE, so no stale repost can pass an open fence. The fence and epoch state live outside the saved
 block and are reset on a new game or lobby entry. An AI takeover cannot inherit a fence: a drop aborts the
 transaction (§4.5). DirectPlay guaranteed messages are ordered per sender pair [I], so everything S sent before
-loading arrives before S's LOADED; everything after is valid. **Sender identity** for 0x68/0x74/0x85/0x86 is
-open (§2: receive record field vs. per-type body decoder) — to be settled in the spike before the fence is
-implemented.
+loading arrives before S's LOADED; everything after is valid. The fence key is the sender's player id from
+wParam (§2: esi at the Fix B hook, ebx at 0x510278), validated against the frozen member set.
 
 ## 4. Mechanics
 
@@ -193,10 +205,22 @@ implemented.
 
 At 0x5100c9 and 0x51031f: multiplayer, `rs_phase == 0`, rate limit OK → `rs_phase = 1`, send REQ (host:
 handle locally), continue at **0x51000b / 0x5103f8**. Rate limit enforced by the host: at most 2 accepted
-transactions per 10 turns (sliding); over the limit the host answers ABORT → old error. In the dispatcher
-The 0x71 gate sits in the hook at 0x510278 (§3.2): every 0x71 is first recorded in `rs_last71`; while
-`rs_phase != 0` or behind the fence it then jumps to 0x5103f8 instead of the compare (avoids the turn-number
-asserts on skewed machines and keeps the evidence).
+transactions per 10 turns (sliding); over the limit the host answers ABORT → old error.
+
+**Local compare loop gate** (round 6, Astra): `FUN_0050ffe0` sends its own 0x71 first (0x50ffec, kept), then
+iterates the stored entries; its turn-number assert (0x510058..0x51007c) precedes the mismatch site, and the
+continuation 0x51000b goes on to the **next** entry. Hook each iteration at 0x510002 (`83 bd c0 cf 5c 00 ff`):
+while `rs_phase != 0` jump to the epilogue 0x51002d; otherwise replay the cmp and continue at 0x510009. A
+mismatch that enters phase 1 therefore skips all remaining comparisons.
+
+**0x71 ledger and gate** at 0x510278 (`83 3d 20 29 5a 00 00`, then `0f 84 73 01 00 00`; 13 bytes; body at
+esp+0x400, turn `[esp+0x400]`, empire `byte [esp+0x524]`, **ebx = wParam = sender id**; nothing before it
+asserts or tests the turn — the `[0x5a291c]` test is at 0x510285, the turn assert at 0x5102a1; all GPRs are dead
+for the stock code there): map the sender with `FUN_005105d0(eax = ebx)` (record or 0; unknown sender → no
+ledger entry), require record byte +0x2c == body +0x124, record `rs_last71[emp] = turn`, then apply the
+phase/fence gate (jump to 0x5103f8 — the stock epilogue, `add esp,0x650; pop edi/esi/ecx/ebx; ret`, after
+restoring any cave pushes) or replay the cmp and resume at 0x51027f. The ledger is initialised per game/session
+and never cleared at an ordinary turn start.
 
 ### 4.2 Safe point and wake-up
 
@@ -205,13 +229,22 @@ pushes replayed in the cave; esi/ebx preserved). QUIET is sent from the dispatch
 a modal dialog or a tactical combat (their own pumps never pass 0x402201) freezes at once and applies when it
 returns to the loop. With an inactive window the loop sleeps in WaitMessage (0x402330) and passes 0x402201
 only when a message arrives, so during a transaction the receive thread posts a wake-up message once per
-second (TICK, payload-free, from the Fix D rxwait loop through IAT_POSTMSG; it needs its own window-message
-route intercepted before the network-id lookup at 0x50a704 — hook site to be chosen). The apply's own nested
-pump (`FUN_0050d010` → `FUN_004024c0`) does not return to its caller while the window is inactive. **Round 5
-decision:** `[0x5a28d4]` stays owned by the activation handler (forcing it would swallow a real activation
-change and restoring could overwrite the latest state); instead a **scoped pump override** at 0x4024d8 lets the
-nested pump return when the queue is empty and the apply re-entry flag is set, whatever the activation state
-[I — test focus changes during both pumps and an inactive-window apply in the spike]. 0x40233c was considered
+second. **TICK route** (round 6): a private window message `WM_APP + 0x92`, intercepted in the window proc at
+0x401507 (`81 f9 13 01 00 00`, cmp ecx,0x113; ecx = uMsg, ebp = HWND, esi = wParam, edi = lParam): TICK runs
+the timeout bookkeeping with all registers preserved, sets eax = 0 and leaves through 0x401613; other messages
+replay the cmp and resume at 0x40150d. TICK never performs a receive-record lookup and never applies a snapshot.
+Posted by a rate-limited helper (push 0, push 0, push WM_APP+0x92, push `[0x5a074c]`, call `[0x57462c]`) from
+the Fix D rxwait cave **and** from the receive drain loop (e.g. at 0x54d9e5, replaying `bb 01 00 00 00`), so a
+continuous receive stream cannot starve it. (Alternative verified by Fable: message 0x400 with wParam 0 and
+lParam 0xffffffff, intercepted at 0x50a6ef `e8 0c 5f 00 00` before `FUN_00510600`, exit 0x50a748 — rejected
+because it shares the network message id.) The apply's own nested pump (`FUN_0050d010` → `FUN_004024c0`) does
+not return to its caller while the window is inactive. **Decision (round 5):** `[0x5a28d4]` stays owned by the
+activation handler; a **scoped pump override** at 0x4024d8 (`3b 35 d4 28 5a 00`, cmp esi,[0x5a28d4], esi = 0,
+followed by `75 32` jne 0x402512; reached only after an empty PeekMessage) — cave: if `rs_apply` jump to
+0x402512 (stock idle exit: eax = 1, pops esi/edx/ecx/ebx, ret), else replay the cmp and continue at 0x4024de.
+Queued messages, activation handling and WM_QUIT keep their paths; all callers of `FUN_004024c0` ignore the
+result or test only 0 [V]. The outer loop (0x402328) needs no override (it returns to the loop top after
+waking), and 0x4023a0 belongs to the tactical-combat pump `FUN_00402360`, not to the apply path [V]. 0x40233c was considered
 but needs an active window and an empty queue. The resync messages (0x89, 0x72, 0x73
 during a transaction) go into a **dedicated bounded queue** (own buffer, explicit payload ownership, no
 execution on overflow → ABORT), not into the Fix B/L buffer; the Fix B flush must not repost them. Entries
@@ -220,15 +253,20 @@ are applied in arrival order at the loop top, one per iteration, with a re-entry
 ### 4.3 Host steps (at the loop top, `[0x5a291c] != 1`, i.e. idle or waiting)
 
 1. receive REQ (or own detection, post-turn) → phase 1, END TURN blocked; wait until the 0x71 of the turn has
-   arrived from every human in the mask (§3.2); then epoch += 1, install the state, FREEZE(epoch, turn), freeze
-   itself (phase 2);
-2. wait for QUIET of all humans (timeout → ABORT);
+   arrived from every eligible member (§3.2); then epoch += 1, install the state, FREEZE(epoch, turn), freeze
+   itself (phase 2) and **mark its own QUIET locally**;
+2. wait for QUIET of all eligible members (timeout → ABORT);
 3. at its loop top: `[0x5a2998] = [0x5a2b28]` (both in the saved block); save `auto.sav`
-   (`FUN_00438630(-0xd)`, also with autosave off); send SNAPINFO(epoch, file length, CRC32);
+   (`FUN_00438630(-0xd)`, also with autosave off); compute length and CRC32 of **that original file**; send
+   SNAPINFO(epoch, file length, CRC32); enter **phase 3**;
 4. broadcast 0x89, then `FUN_0050de40(-0xd, 0)`;
-5. apply its own file through the same path as everybody: `FUN_0050d070` **unconditionally** (the broadcast
-   does not reach the sender), then §4.4;
-6. collect LOADED; all sets equal → RELEASE; else ABORT.
+5. apply its own file through the same helper as everybody (§4.4; the broadcast does not reach the sender, so
+   the helper calls `FUN_0050d070` unconditionally);
+6. collect LOADED (own one marked locally after a successful apply); all sets equal → RELEASE; else ABORT.
+
+Every machine: the apply guard is acquired **before** any dialog work; a failed check or load cleans up
+(queue entries freed, flags reset, `[0x5a2994]`/`[0x5a2990]` restored) and sends FAIL — **never LOADED**; only
+a successful apply enters phase 4.
 
 A host waiting at −1 is fine: the load resets `[0x5a291c]` to 0 and drops its sent current-turn orders like
 everybody's.
@@ -238,7 +276,14 @@ everybody's.
 At the loop top, phase 3, one guarded **apply helper** for host and clients alike (the host never passes the
 stock 0x72 receiver, so the helper is called from the tick): `[0x5a2990] = 0` **before** `FUN_0050d070` (it too
 takes a host branch while `[0x5a2990] == 1`, 0x50d07c..0x50d0a7), then `FUN_0050d070` for the dialog (host:
-unconditionally); check the received file against SNAPINFO's length and CRC32 (mismatch → FAIL / ABORT); save
+unconditionally). **File check before materialisation** (round 6, Astra): the stock 0x72 receiver calls
+`FUN_0050dd90` at 0x50dd76 (`e8 15 00 00 00`, eax = buffer, edx = length) **before** the apply call at 0x50dd7b;
+that function writes `auto.sav`, frees the buffer, parses the archive (can assert on a missing `gameInfo`) and
+rewrites/recompresses `gameInfo` (0x50ddd0, 0x4389db, 0x4389e7, 0x51c163, 0x50de18..0x50de2e). So the length
+and CRC32 from SNAPINFO are checked against the **raw received buffer at 0x50dd76**: on success the original
+call runs and the guarded apply follows; on failure the buffer is freed exactly once and the receiver exits
+through 0x50dd80 (no materialisation, no apply) → FAIL. The host validates its own original file in step 3 of
+§4.3; the CRC of a client's rewritten archive is never used to identify the transport bytes. Then save
 `[0x5a2994]` in the data cave (outside the saved block); block timer-driven END TURN while the re-entry flag is
 set (the dialog pump runs the timer path `FUN_00402410` at depth 0, where Fix K does not defer); then
 `FUN_0050da70` with
@@ -310,7 +355,9 @@ from non-members are ignored. An unexpected 0x73 in a running game keeps its sto
    | 0x43d0e0 or 0x43d0f2 + 0x43d0f7 | `83 3d 24 29 5a 00 00` (`je` at 0x43d0e7 consumes the flags) or `e8 79 05 0d 00` + `e8 84 ca 0d 00` | skip the lobby report and the transport close during the reload (the 7-byte variant must keep the shutdown CMP's flags outside the apply) |
    | 0x4387fb | `83 f8 01 74 05` | file-open flag; reproduce the compare and branch |
    | 0x4389c0 | `e8 fb 3f 0e 00` | tail flag: call `FUN_0051c9c0`, set the flag, continue at 0x4389c5 |
-   | 0x4024d8 | (one pump decision) | scoped override: return from the nested pump while the apply flag is set |
+   | 0x4024d8 | `3b 35 d4 28 5a 00` (then `75 32`) | scoped override: if `rs_apply` jump to 0x402512, else replay the cmp and continue at 0x4024de |
+   | 0x50dd76 | `e8 15 00 00 00` | raw-buffer check (length + CRC32 logged by the host trigger) before `FUN_0050dd90`; failure frees the buffer once and exits via 0x50dd80 |
+   | 0x510002 | `83 bd c0 cf 5c 00 ff` | compare-loop gate: while a transfer is active jump to 0x51002d, else replay and continue at 0x510009 (needed in the spike only if the trigger runs while 0x71 compares can happen; harmless otherwise) |
 
    Helpers: the guarded apply (§4.4: `[0x5a2990] = 0` before the dialog, file check against length + CRC32
    logged by the host trigger, `[0x5a2994]` save/set/restore, re-entry flag, timer END TURN block, Fix Y slot
@@ -326,7 +373,8 @@ from non-members are ignored. An unexpected 0x73 in a running game keeps its sto
    state, pool counters), and once from a lobby-resumed game (`[0x5a2994] = 1` before and after the apply);
    `[0x597504]` equals the loaded `[0x5a2b28]` before `FUN_00510ba0` (logged on every machine); a 0x72 that
    arrives while BUSY (parked, reposted, then diverted); apply with an inactive window and with focus changes
-   during the apply; the receive record searched for the DirectPlay idFrom (needed for the fence); a missing and a
+   during the apply; wParam of every received 0x400 logged against the player table (confirms the sender id the
+   fence relies on); a missing and a
    truncated file (rejected, no load); production fields of a few systems (host, owner, third party) compared
    before and after; ordinary traffic (0x68/0x74/0x71) after repeated loads; log the arrival order of numbered
    test messages from two senders with artificial delay (evidence for per-sender ordering, not a proof).
@@ -421,3 +469,18 @@ from non-members are ignored. An unexpected 0x73 in a running game keeps its sto
 | TICK through the Fix B cave | needs its own window-message route before the network-id lookup at 0x50a704 | Astra |
 | "0x458238 every turn start" | post-turn | Fable |
 | spike table without exact bytes / helpers | exact original bytes for every site, 0x4024d8 override, file length + CRC32 logged by the trigger, idle preconditions | Astra, Fable |
+
+## 13. Changes against v6 (review round 6)
+
+| v6 | v7 | Source |
+|---|---|---|
+| sender identity of the fence open | settled: wParam = wire header +0x20 = sender's player id `[0x5fd8c4]`, matched by `FUN_00510600` against player-table +0x28, empire +0x2c; esi at 0x50a709, ebx at 0x510278; DirectPlay idFrom is discarded; no body decoder | Fable, Astra (both verified) |
+| file checked against SNAPINFO inside the apply | checked against the **raw buffer at 0x50dd76**, before `FUN_0050dd90` writes, frees, parses and rewrites the archive; failure frees once and exits via 0x50dd80 | Astra (P1) |
+| mismatch continues at 0x51000b only | gate per compare iteration at 0x510002 → epilogue 0x51002d while a transaction is active (0x51000b goes on to the next entry) | Astra (P1) |
+| 0x510278 hook details | exact bytes, stack layout (body esp+0x400, empire esp+0x524, ebx = wParam), mapping via `FUN_005105d0`, resume at 0x51027f, ledger initialised per session | Fable, Astra |
+| scoped pump override "one pump decision" | `3b 35 d4 28 5a 00` + `75 32`; override jumps to the stock idle exit 0x402512; outer loop and combat pump need nothing | Fable, Astra |
+| TICK hook site open, "unknown ids fall through" | private `WM_APP + 0x92` intercepted in the window proc at 0x401507 (other ids never reach the dispatcher); posted from rxwait and the receive drain loop; Fable's 0x400/magic-lParam variant at 0x50a6ef documented as alternative | Astra, Fable |
+| "eliminated humans always send 0x71" | not established; the host waits only for eligible members (in the mask, not dead in `[0x5a2b50]`, in the player table) and aborts on unclassifiable states | Astra |
+| transitions implicit | host marks its own QUIET and LOADED, enters phase 3 before the transfer; apply guard before any dialog work; failure cleans up and sends FAIL, never LOADED; only success enters phase 4; QUIET/LOADED carry the mask | Astra |
+| send counter not mentioned | `[0x5a075c]` is outside the saved block: (sender, counter) stay unique across a resync | Fable |
+| spike acceptance "search the receive record" | log wParam of every 0x400 against the player table | Fable |
