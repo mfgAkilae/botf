@@ -117,6 +117,7 @@ inflate, `0x53016f`/`0x530176` inside SmartHeap's allocator).
 | war5_v16: 5 humans, manual tactical combat for all races | v1.6.0 | 220 → 370 | no break (66 tactical combat rounds) |
 | new5_v16: new game, small spiral galaxy, 5 humans, manual tactical combat | v1.6.0 | 0 → 179 | in sync; **player B crashed** in the system screen at turn 179 (bug G) |
 | new5_g: same game from the turn-160 save | v1.6.1 | 160 → 300 | no break (51 tactical combat rounds) |
+| new5b_v161: new game, small spiral galaxy, 5 humans, manual tactical combat | v1.6.1 | 0 → 300 | no break (49 tactical combat rounds) |
 | ai2_v16 / ai2b_v16: new games, 2 humans + 3 computer empires | v1.6.0 | 0 → 63 / 0 → 66 | no break; both ended when the computer empires eliminated a human player |
 
 Note for your own tests: loading a multiplayer save heals a divergence that already exists (the host
