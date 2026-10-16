@@ -1,10 +1,9 @@
-# DRAFT v8: self-healing multiplayer ("resync instead of synchronization error")
+# DRAFT v9: self-healing multiplayer ("resync instead of synchronization error")
 
-Status: design draft after seven review rounds (Claude Fable, Codex gpt-6-astra); not implemented. Round 7
-verdict on v7: Fable "text-only revision; spike can start once the queue model, the failure free, the 0x89
-semantics and the host trigger are specified"; Astra "needs another revision (progress blocker, contradictory
-failure handling, membership, addressing)". v8 is a **consistent rewrite of the normative part** (sections
-1–8) that integrates all round-7 findings; the appendix (sections 9–14) is non-normative review history.
+Status: design draft after eight review rounds (Claude Fable, Codex gpt-6-astra); not implemented. Round 8
+(Astra only) verdict on v8: "needs another revision; after the corrections suitable for the spike, not yet for
+implementation approval" — all literal byte sequences verified, the target turn T confirmed. v9 integrates the
+round-8 findings (section 15). Sections 1–8 are normative; the appendix (sections 9–15) is non-normative history.
 Addresses: trek.exe 2.0.4 EN. [V] = verified in the disassembly (by a reviewer or by us), [I] = inference.
 
 Terms used throughout: **loop-top step** = our code at the main-loop hook 0x402201; **TICK** = the private
@@ -29,7 +28,8 @@ ends the game exactly like today.
 - **Apply** [V] `FUN_0050da70`: keeps the local empire and the session strings 0x5a2928..0x5a2977, loads
   (`FUN_004387f0(-0xd)`), applies a human mask (`FUN_00510ba0`), drops type-2 orders of other humans whose task
   force is missing (`FUN_004569e0`), re-initialises the turn (`FUN_00438740`), rebuilds the screens, restarts
-  the timer (0x50dd14), sets session-descriptor flags (0x50dab0, harmless on clients), `[0x5a2afc] = 0`. Host
+  the timer (0x50dd14), sets session-descriptor flags (0x50dab0 → `SetSessionDesc` 0x54c989, which can fail;
+  the result is recorded but ignored by the caller — consequence on clients [I]), `[0x5a2afc] = 0`. Host
   branch (0x50dae4, `[0x5a2990] == 1`) re-broadcasts; client branch requires the transfer dialog `[0x597508]`
   (`FUN_0050d010` asserts while it is missing, closes it and pumps twice). `FUN_0050d070` creates that dialog
   (its `[0x5a2990]` test only selects the dialog text, 0x50d07c..0x50d0b7).
@@ -41,7 +41,8 @@ ends the game exactly like today.
 - **Teardown on load** [V]: with `[0x5a2920] == 1`, `FUN_004387f0` calls `FUN_0043d0d0` (0x4388f3), which in
   multiplayer calls `FUN_0050d670` (0x43d0f2, only when `[0x5b1a88] != 0`: lobby score messages) and
   `FUN_00519b80` (0x43d0f7 → `FUN_0054cf90`: DestroyPlayer / Close / Release, `[0x5fd97c] = 0`). No other call
-  in the load closes the transport; transport survival without these two calls is a runtime question.
+  in the load is known to close the transport — the call-site audit covered the two named calls, the universal
+  negative is [I]; transport survival without these two calls is a runtime question.
 - **Host identity** [V]: `[0x5a2990]` is in the saved block (offset 0xb8) and overwritten by every load;
   transport role = `[0x5fd978] == 1` (`FUN_00519fb0`).
 - **Load resets** [V]: `[0x5a291c] = 0` (0x43cebd), RNG, order list (current-turn orders skipped and leaked,
@@ -114,9 +115,17 @@ Fixed by the host at FREEZE: every empire that is human in `[0x5a2b28]`, not set
 player-table entry with a non-zero id. P (empire mask + player ids) travels in FREEZE; every member echoes its
 own view in QUIET and LOADED; any difference, a FREEZE that does not contain the receiving machine although it
 is human and alive, or a membership state the host cannot classify → ABORT. All completion, QUIET and LOADED
-requirements use P and nothing else. The stock mute filter (`FUN_00510600`) only drops traffic in which the
-local or the sender's empire is marked in `[0x5a2b50]`; such empires are never in P, so resync control traffic
-between members of P passes it.
+requirements use P and nothing else.
+
+**Control traffic and the mute filter** (round 8, Astra): `FUN_00510600` runs at 0x50a6ef, before any of our
+dispatch code, and drops a message when the **receiver's local** `[0x5a2b50]` marks the receiver's own empire or
+the sender's — after a divergence a member's local mask can disagree with the host's P, so a FREEZE or ABORT
+could be discarded before P is even checked. Therefore resync controls are decoded **before** the filter: a cave
+at 0x50a6ef (`e8 0c 5f 00 00`) performs, for message 0x400, the stock type lookup once (the call otherwise made at
+0x50a704) and keeps its result; types 0x8a..0x93 go to the resync handler without `FUN_00510600`, authorised by
+sender id (player table) and, once frozen, membership in P; every other type runs `FUN_00510600` as before and
+continues behind 0x50a704 with the cached lookup result, so the lookup still runs exactly once. The exact
+continuation layout of 0x50a6f4..0x50a709 is verified in the spike [I].
 
 ### 3.4 Target turn and the host's decision
 
@@ -124,6 +133,8 @@ Each machine records `own71 = [0x5a2918]` at the compare-loop gate 0x510002 (fir
 own 0x71 send at 0x50ffec). REQ carries T = the requester's own71. The host keeps `rs_last71[emp]` (§4.1).
 
 Host, on REQ (or own mismatch with T = own71):
+- T incompatible with the host's own turn (the host's `[0x5a2918]` is neither T − 1 nor T — lockstep allows at
+  most one turn of difference, so anything else is impossible or stale) → NACK(requester id, seq);
 - a transaction is running → merge (the requester is a member; nothing to send);
 - the request's last applied epoch is older than the host's last completed epoch → NACK(requester id, seq);
 - otherwise → host phase 1 with this T, D_complete started.
@@ -153,22 +164,27 @@ entry. Correct under per-sender in-order delivery (spike).
 
 ### 3.6 Deadlines and termination
 
-All deadlines count from the named event, are checked in the loop-top step and in the TICK handler, and are not
-extended by duplicates:
+Deadlines belong to phases: armed by the named event, **disarmed when the owning phase is left** (and all of a
+machine's resync deadlines on NACK, RELEASE or terminal completion), checked in the loop-top step and in the TICK
+handler, never extended by duplicates. Expiry only records terminal work; the pump-progress rule (§4.3) makes
+sure that work runs.
 
-| Deadline | Who | Starts at | Length |
-|---|---|---|---|
-| D_req | requester | REQ sent | 330 s (D_complete + 30 s margin) |
-| D_complete | host | phase 1 entered | 300 s |
-| D_quiet | host | FREEZE sent | 60 s |
-| D_loaded | host | SNAPINFO sent | 300 s |
-| D_abort | any machine after sending FAIL | FAIL sent | 30 s |
+| Deadline | Who | Armed at | Disarmed at | Length |
+|---|---|---|---|---|
+| D_req | requester | REQ sent | FREEZE or NACK | 330 s (D_complete + 30 s) |
+| D_complete | host | phase 1 entered | FREEZE sent | 300 s |
+| D_quiet | host | FREEZE sent | all QUIET received | 60 s |
+| D_loaded | host | SNAPINFO sent | all LOADED received | 300 s |
+| D_member | every member of P (host included) | FREEZE received/sent | RELEASE | 660 s (covers D_quiet + D_loaded + transfer) |
+| D_abort | a machine that sent FAIL | FAIL sent | ABORT received | 30 s |
 
-On ABORT, on own deadline expiry and 30 s after an own FAIL the machine raises the **stock error** from the
-loop-top step by replicating the sequence of 0x5100c9..0x5100e0 (`eax = 0x4bd`, `ebx = -1`, `call 0x48b2e0`,
-dialog with `[0x5cd5f8]`; to be verified in the spike). Before that a client sends FAIL(epoch or 0, reason) so
-the host can ABORT the others. The host applies its own RELEASE and ABORT locally. ABORT is terminal: no new
-transaction in that game. A pending ABORT always has priority over LOADED.
+**Terminal handling** (round 8, Astra): first send FAIL (client) or ABORT (host; applied locally too), then a
+dedicated **terminal helper** runs from the loop-top step (or the TICK handler when the loop top is not reached):
+it shows the stock "synchronization error" message with its own valid arguments (the string id 0x4bd through
+`FUN_0048b2e0` and the message box `FUN_005004a4`, as at 0x5100c9..0x5100e4) and then enters the stock fatal route
+(`FUN_005081b0` → 0x402880 / 0x402920, which writes Crash.log and exits, as after 0x510190). It does not reuse the
+frame-dependent checksum diagnostic code of `FUN_0050ffe0`. ABORT is terminal: no new transaction in that game. A
+pending ABORT always has priority over LOADED.
 
 Rate limit (host only): at most 2 accepted transactions per 10 turns; a further REQ → ABORT.
 
@@ -188,13 +204,19 @@ Rate limit (host only): at most 2 accepted transactions per 10 turns; a further 
 
 ### 4.2 Dispatch of resync traffic (the 0x50a709 cave, extended Fix B)
 
-- 0x8a..0x93: handled here (state changes only; at any depth).
+- 0x8a..0x93: decoded before the mute filter (§3.3) and handled at any depth (state changes only).
 - 0x89, 0x72 during a transaction (or the spike): **queued as (wParam, lParam) pairs**, exactly like the Fix B
-  park; the receive record stays in the pool. The Fix B flush never reposts these entries. 0x73 during a
-  transaction: dropped (its record freed). 0x72 without a SNAPINFO of the current epoch → FAIL.
+  park; the receive record stays in the pool (records survive the type lookup and parking until consumption,
+  0x54d7a2, 0x566c30, 0x54dd84 [V]). Every queued record has exactly one owner, the queue; the queue is
+  bounded (4 entries) and an overflow is a FAIL. The Fix B flush never reposts these entries. 0x73 during a
+  transaction: its record is consumed and dropped. 0x72 without a SNAPINFO of the current epoch → FAIL.
 - At the loop-top step, one entry per iteration is re-dispatched through `FUN_0050a6e0(eax = 0x400,
-  edx = wParam, ebx = lParam)` with `rs_pass = 1` so the cave lets it through; the stock handlers then run
-  (0x89 → `FUN_0050cfd0` creates the dialog; 0x72 → `FUN_0050dd30` with the hooks of §4.4).
+  edx = wParam, ebx = lParam)` with a **one-shot pass token**: the cave compares the arriving (wParam, lParam)
+  with the token, **clears the token before** calling the stock handler and lets only that notification through;
+  a notification that arrives in a pump inside the stock handler follows the normal queue rules (no nested apply).
+  0x89 → `FUN_0050cfd0` creates the dialog; its branch does not consume the record (0x50a897..0x50a8a8 [V]), so
+  the loop-top step retires that record afterwards through the stock record release (exactly once). 0x72 →
+  `FUN_0050dd30` with the hooks of §4.4, which consumes its record.
 
 ### 4.3 Loop-top step and TICK
 
@@ -205,14 +227,22 @@ Rate limit (host only): at most 2 accepted transactions per 10 turns; a further 
   0x40150d. Posted by a rate-limited helper (push 0, push 0, push WM_APP+0x92, push `[0x5a074c]`, call
   `[0x57462c]`) from the Fix D rxwait cave and from the receive drain loop (0x54d9e5, replaying
   `bb 01 00 00 00`), only while `rs_phase != 0`.
-- **Pump override** at 0x4024d8: if `rs_apply` jump to 0x402512 (stock idle exit), else replay the cmp and
-  continue at 0x4024de. `[0x5a28d4]` is never written.
+- **Pump override / pump-progress rule** (round 8, Astra): the nested pump waits again when the window is
+  inactive and its queue is empty, and several resync paths pump — the 0x89 handler (0x50cff9), the dialog close
+  (0x50d04a..0x50d05a), the turn start of a phase-1 machine below T (0x45820b) — so a queued 0x89, a rejection
+  cleanup or a host finishing turn T could stall with an inactive window. The override at 0x4024d8 therefore
+  jumps to 0x402512 (stock idle exit) whenever **`rs_guard`** is set, else replays the cmp and continues at
+  0x4024de. `rs_guard` is set while `rs_phase != 0` (covers phase-1 turn completion, re-dispatch, apply,
+  cleanup and terminal work) and during the spike; it is never set outside a transaction, so normal play is
+  unchanged. `[0x5a28d4]` is never written. Every path that must report sends FAIL **before** any cleanup that
+  pumps.
 
 ### 4.4 Apply (every machine; the host calls it directly, §4.5)
 
 Raw-buffer check at 0x50dd76 (client only): compare edx (length) and the CRC32 of [eax..eax+edx) with
-SNAPINFO. Mismatch → `FUN_00492e60(eax = buffer)`, skip both calls, jump to 0x50dd80; close the transfer
-dialog if it exists (the stock close of `FUN_0050d010`); send FAIL; terminal per §3.6. Match → run the original
+SNAPINFO. Mismatch → `FUN_00492e60(eax = buffer)`, skip both calls, jump to 0x50dd80; send FAIL; then (pumps
+allowed, `rs_guard` set) close the transfer dialog if it exists (the stock close of `FUN_0050d010`); terminal per
+§3.6. Match → run the original
 call to `FUN_0050dd90`; at 0x50dd7b the call goes to the **apply helper**:
 
 1. acquire `rs_apply` (re-entry guard; resync handlers only set flags while it is held); save `[0x5a2994]`;
@@ -271,50 +301,70 @@ receive state (0x50d83c, 0x50d870..0x50d894) or starts a turn (0x50d8a4).
 ## 7. Spike (test build only, self-contained)
 
 Purpose: prove (1) transport survival, (2) a correct apply on every machine, (3) per-sender ordering evidence.
-No protocol; every step is triggered by poking test fields with the debugger tools.
+No protocol; the test tool drives a small state machine through poke-able fields.
 
-**Data** (new section or test shim section): `sp_trigger` (dword), `sp_len`, `sp_crc` (expected values,
-written into every client by the test tool before the trigger), `rs_apply`, `rs_pass`, `sp_saved_2994`,
-`sp_queue[2]` (wParam, lParam), `sp_flag_open`, `sp_flag_tail`, `sp_log[]` (CRC words + RNG per apply), RNG
-buffer 0x120 bytes.
+**Prerequisite**: a place for the code and data. The existing patcher only uses the fixed caves (code 0x516e60,
+data 0x6896e0); the spike runs in a test build whose shim section (`build_test.py`, `.tstshim`) is enlarged for
+the spike code and data. New-section support for the release patcher (all 143 variants) is a separate
+prerequisite of the implementation, not of the spike.
+
+**Data**: `sp_state` (0 IDLE, 1 PREPARE, 2 ARMED, 3 SEND, 4 DRAIN, 5 DONE), `sp_len`, `sp_crc` (expected values;
+the host writes its own, the tool copies them into every client), `rs_guard`, `rs_apply`, `sp_token`
+(one-shot pass: wParam, lParam), `sp_saved_2994`, `sp_queue[4]` (wParam, lParam), `sp_flag_open`,
+`sp_flag_tail`, `sp_log[]` (CRC words + RNG + mask per apply, failures), RNG buffer 0x120 bytes.
+
+**States** (all machines; the tool writes `sp_state`)
+1. PREPARE (host only): at its loop top the host writes `[0x5a2998] = [0x5a2b28]`, saves `auto.sav`, computes
+   length/CRC32 into `sp_len`/`sp_crc`, logs and **stops** (`sp_state` stays 1).
+2. ARMED (all machines): the tool copies `sp_len`/`sp_crc` from the host into every client and sets `sp_state = 2`
+   everywhere; from now on `rs_guard` is set and 0x89/0x72 are queued, compares are skipped (0x510002) and timer
+   END TURN is deferred (Fix K cave).
+3. SEND (host): the tool sets 3 on the host; at its loop top the host sends 0x89 (`mov eax,0x89; call 0x5199c0`)
+   and `FUN_0050de40(eax = -0xd, edx = 0)`, applies its own file directly (§4.4 helper) and sets 4. The tool posts a
+   wake-up to an inactive host before setting 3.
+4. DRAIN (clients, entered with the first queued entry): the loop-top step re-dispatches one queued entry per
+   iteration with the one-shot token (§4.2), retires the 0x89 record, applies the 0x72 through the §4.4 hooks;
+   gates stay active until the queue is empty and the apply finished (or failed); then 5.
+5. DONE: log, clear `rs_guard`, reset the flags, the token and the queue; `sp_state = 0`. Every failure path
+   (raw-buffer mismatch, missing flag, queue overflow) logs and ends in DONE with the same reset.
 
 **Patch sites**
 
 | Site | Original bytes | Spike behaviour |
 |---|---|---|
-| 0x402201 | `56 56 56 56 53` | loop-top step: host with `sp_trigger` → host steps 3–5 of §4.5 (SNAPINFO replaced by logging len/CRC32), clear the trigger; re-dispatch one queued entry |
-| 0x50a709 | `66 89 04 24 8b 04 24` | queue 0x89/0x72 while `sp_trigger` is set on any machine or entries are queued; pass through when `rs_pass` |
-| 0x50dd76 | `e8 15 00 00 00` | raw-buffer check against `sp_len`/`sp_crc` (failure: free, skip, 0x50dd80, close dialog, log) |
+| 0x402201 | `56 56 56 56 53` | loop-top step: PREPARE / SEND on the host, DRAIN re-dispatch, DONE reset |
+| 0x50a6ef | `e8 0c 5f 00 00` | not needed in the spike (no control messages); reserved for §3.3 |
+| 0x50a709 | `66 89 04 24 8b 04 24` | queue 0x89/0x72 while `sp_state` is 2..4; the one-shot token passes exactly the re-dispatched entry |
+| 0x50dd76 | `e8 15 00 00 00` | raw-buffer check against `sp_len`/`sp_crc` (failure: free once, skip, 0x50dd80, log, close dialog) |
 | 0x50dd7b | `e8 f0 fc ff ff` | apply helper (§4.4 steps 1–6, LOADED replaced by logging) |
 | 0x43d0f2, 0x43d0f7 | `e8 79 05 0d 00`, `e8 84 ca 0d 00` | skip while `rs_apply` |
 | 0x4387fb | `83 f8 01 74 05` | file-open flag |
 | 0x4389c0 | `e8 fb 3f 0e 00` | tail flag |
-| 0x4024d8 | `3b 35 d4 28 5a 00` | pump override while `rs_apply` |
-| 0x510002 | `83 bd c0 cf 5c 00 ff` | skip compares while `rs_apply` or entries are queued |
-| 0x4b9f6a (existing Fix K cave) | — | defer timer END TURN while `rs_apply` |
+| 0x4024d8 | `3b 35 d4 28 5a 00` | idle exit while `rs_guard` |
+| 0x510002 | `83 bd c0 cf 5c 00 ff` | skip compares while `sp_state` is 2..4 |
+| 0x4b9f6a (existing Fix K cave) | — | defer timer END TURN while `sp_state` is 2..4 |
 
-Overwritten bytes ≈ 56 (+ the Fix K condition); helper code ≈ 400–600 bytes; data ≈ 0x120 + 64 bytes.
-The CRC32 is our own small bitwise routine (no stock one is used).
+Overwritten bytes ≈ 56 (+ the Fix K condition); helper code ≈ 500–700 bytes; data ≈ 0x120 + 80 bytes. The CRC32
+is our own small bitwise routine.
 
-**Procedures**
-1. Idle: all five idle; poke a divergence on client C (e.g. system +0x2dc); the tool writes `sp_len`/`sp_crc`
-   into every client after the host has saved (two-step trigger: host saves and logs, tool copies the values,
-   host sends); post a wake-up to the host if its window is inactive.
-2. Waiting: one client has ended its turn (−1) when the trigger fires.
-3. BUSY: a 0x72 arrives while a client processes (parked by Fix B, reposted, then queued).
-4. System screen open on a client; focus changes during the apply; inactive-window apply.
+**Procedures** (each starts from IDLE on all five)
+1. Idle: poke a divergence on client C (e.g. system +0x2dc); PREPARE, ARMED, SEND.
+2. Waiting: one client has ended its turn (−1) before ARMED.
+3. BUSY: SEND while a client processes a turn (its 0x72 is parked by Fix B, reposted, then queued).
+4. System screen open on a client; focus changes during the apply; inactive windows on host and a client.
 5. Two transfers in a row; a lobby-resumed game (`[0x5a2994] = 1` before and after).
-6. Missing and truncated file (rejected, no load, buffer freed once, dialog closed).
+6. Wrong `sp_crc` on one client (rejected, buffer freed once, dialog closed, no load); missing file on the host.
 
 **Acceptance**: DirectPlay ids and the session unchanged; `[0x597504]` equals the loaded `[0x5a2b28]` before
 `FUN_00510ba0`; CRC words and RNG equal on all five after every apply; real orders, queues and 10 turns in sync
 afterwards; production fields of host-owned, client-owned and third-party systems compared; wParam of every
 received 0x400 logged against the player table; arrival order of numbered test messages from two senders with
-artificial delay logged.
+artificial delay logged; queue empty and every record consumed exactly once (pool counters before/after).
 
 ## 8. Open questions
 
-- Replicating the stock error from the loop-top step (§3.6) — verify in the spike.
+- The terminal helper (§3.6) and the reordered lookup at 0x50a6ef (§3.3) — verify after the spike, before the
+  protocol is implemented.
 - New PE section support in the patcher (all variants).
 - Exact deadline values after the spike's transfer-time measurements.
 
@@ -438,3 +488,17 @@ are **not** part of the design; sections 1–8 above are authoritative.
 | rate limit checked on the detecting machine | host only | Fable |
 | spike relied on §4.4 and the protocol; 35–40 bytes | self-contained spike: data layout, patch table with behaviour, two-step trigger with expected len/CRC written by the test tool, procedures for idle/waiting/BUSY, ≈ 56 overwritten bytes | Astra (P2), Fable |
 | risk 8 arithmetic | ≈ 1–1.5 KB with data → new PE section | Fable, Astra |
+
+## 15. Changes against v8 (review round 8, Astra)
+
+| v8 | v9 | Source |
+|---|---|---|
+| global `rs_pass` while the stock handler runs | one-shot token cleared before the stock handler; nested notifications follow the queue rules (the 0x89 handler pumps) | Astra (rank 1) |
+| record ownership implicit | the queue owns each record; bounded (4), overflow = FAIL; the 0x89 record (not consumed by its branch) retired once by the loop-top step | Astra (rank 1) |
+| pump override only during the apply | `rs_guard` for the whole transaction: 0x89 dispatch, dialog close, phase-1 turn completion and terminal work cannot stall with an inactive window; FAIL is sent before any pumping cleanup | Astra (rank 2) |
+| "the mute filter cannot drop control traffic between members of P" | false: the filter uses the receiver's local mask; controls are decoded before `FUN_00510600` by a cave at 0x50a6ef that does the type lookup once | Astra (rank 3) |
+| stock error "replicated from 0x5100c9..0x5100e0" | that range only prepares arguments; dedicated terminal helper: message box with own arguments, then the stock fatal route (`FUN_005081b0` → 0x402880/0x402920) | Astra (rank 4) |
+| deadlines with start events only; non-requesting clients unbounded | deadlines owned by phases, disarmed on exit, cancelled on NACK/RELEASE/terminal; D_member for every member from FREEZE to RELEASE | Astra (rank 5) |
+| incompatible T left to time out | REQ with T not in {host turn, host turn + 1} → NACK | Astra |
+| spike trigger saved, sent and applied in one step | staged states PREPARE / ARMED / SEND / DRAIN / DONE with reset on every exit; spike in the enlarged test shim section | Astra (rank 6) |
+| `SetSessionDesc` "harmless" [V]; "no other call closes the transport" [V] | consequence [I]; universal negative [I] | Astra |
