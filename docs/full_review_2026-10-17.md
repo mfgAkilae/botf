@@ -130,3 +130,10 @@ fix. Commands are in `tools/`.
 - **N8 (Fix H restart without revalidation): fixed (static).** The deferred restart of the second kind (empty
   queue) now checks that the system still belongs to a human player and still has a queue. Tested: the arm-A test
   and an empty-queue scrap at Cardassia (the restart runs from Fix H's list on every machine) stay in sync.
+- **R2 (intel orders deleted on elimination): reproduced, fixed (Fix IE).** `tools/r2intel.py` runs the
+  elimination cleanup `FUN_0047f6d0` on every game in the research step (before the intel phase). A left the intel
+  screen with 60/0/40 (record already written on A): without the fix A keeps 60/0/40 and B..E keep the old 50/50
+  (the intel records are not in a heartbeat checksum, so the difference stays latent until it changes an intel
+  result). Fix IE keeps the intel orders in multiplayer and passes the right category in the loop at 0x47fb6e:
+  all five games then hold 60/0/40, and an allocation against the eliminated empire moves to security on every
+  machine (60/0/0/0/20/0/0/0/20 becomes 100/0/... everywhere).

@@ -1194,5 +1194,30 @@ def apply(p):
     # 0x445a4d: call FUN_004638d0 (eax = order pattern, edx = system)
     p.patch(0x445a4d, call_rel(0x445a4d, 0x4638d0), call_rel(0x445a4d, hapattern))
 
+    # ---- Fix IE: an elimination no longer deletes the pending intel orders -------------------------------------
+    # When an empire is eliminated during turn processing (0x43b370 -> FUN_0047f6d0), the game moves every other
+    # empire's intel allocations away from the dead empire, both in the intel records and, in FUN_0047fa90, in the
+    # pending intel orders of type 4 (changed in place through FUN_00457644). It then deletes every intel order of
+    # every empire (0x47fba5, kill mode 0), also priorities and blame orders. But a player who left the intel
+    # screen this turn already wrote the new allocations into his own record (0x4bcb90 -> FUN_0047f190); the other
+    # machines would only apply them from that order in the intel phase FUN_0047f7d0, later in the same turn. So the
+    # player's allocations stay different on his machine (reproduced with tools/r2intel.py from
+    # saves/five_1201_t103: A commits 60/0/40, the cleanup runs in the research step on every machine -> A keeps
+    # 60/0/40, B..E keep 50/50); his intel then works differently on each machine. Found by static code reviews
+    # (review finding R2: Codex Astra and Sol, Claude Sonnet and Fable). In multiplayer the orders are now kept: the
+    # intel phase applies them, with the dead empire's share already moved, on every machine alike.
+    intelkeep = put('intelkeep', '''
+        cmp dword ptr [0x5a2924], 0
+        jne keep
+        jmp 0x4576c4
+    keep:
+        ret
+    ''')
+    # 0x47fba5: call FUN_004576c4 (eax = selected copy of the order, edx = 0)
+    p.patch(0x47fba5, call_rel(0x47fba5, 0x4576c4), call_rel(0x47fba5, intelkeep))
+    # 0x47fb6e: mov ebx,1 -> mov ebx,esi: the loop over espionage (1) and sabotage (2) passed category 1 twice, so
+    # a pending order kept its sabotage share against the dead empire (the records lose it)
+    p.patch(0x47fb6e, 'bb01000000', '89f3909090')
+
     out["code_end"] = code
     return out
