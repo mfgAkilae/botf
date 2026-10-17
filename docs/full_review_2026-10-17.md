@@ -137,3 +137,7 @@ fix. Commands are in `tools/`.
   result). Fix IE keeps the intel orders in multiplayer and passes the right category in the loop at 0x47fb6e:
   all five games then hold 60/0/40, and an allocation against the eliminated empire moves to security on every
   machine (60/0/0/0/20/0/0/0/20 becomes 100/0/... everywhere).
+- **S3 and R7 (Fix U): fixed (static).** The AUTO wrapper's bitmap now covers 16384 units. While AUTO runs, a flag
+  (first use of the free DGROUP tail at 0x5a1600) makes the AI's second pass (0x477ea7) skip ships of other owners.
+  Regression: a manual battle B vs E with AUTO on E (`tools/tactest.sh`, wrapper hit once) ends without a crash and
+  the next turn is in sync. The second-pass guard itself was not reached in that battle.

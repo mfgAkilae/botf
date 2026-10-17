@@ -78,6 +78,10 @@ SEND_TRIES = 250           # x 20 ms
 # .bss (last variable referenced anywhere is 0x6896d4, the section ends at 0x689800).
 CODE_CAVE, CODE_CAVE_END = 0x516e60, 0x517e00
 DATA_CAVE, DATA_CAVE_END = 0x6896e0, 0x689800
+# More mutable data (the .bss tail is full): the end of DGROUP. Its file data ends at 0x5a1600 (last non-zero byte
+# 0x5a142d) and the loader maps the section up to 0x5a2000 zero-filled; nothing in the 8 installer variants refers
+# to 0x5a1500..0x5a2000, and the area stays zero during play.
+DATA2, DATA2_END = 0x5a1600, 0x5a2000
 
 
 def apply(p):
@@ -657,27 +661,33 @@ def apply(p):
     # ships, with combat RNG draws -> battle checksum assert (battle.c line 909, eventListCRC) -> "Disconnected".
     # Found by a static code review (fits an unexplained player report of battle.c:909 late in a game).
     # Around that call all active units of other owners are marked "ordered" temporarily; exactly the marks set
-    # here are removed afterwards (bitmap on the stack, up to 2048 units).
+    # here are removed afterwards (bitmap on the stack, up to 16384 units: the array also holds projectile slots,
+    # so 2048 could be exceeded in a large battle; review finding S3).
+    # The AI's second pass (review finding R7, static) re-plans every ship of the side whose order is 10, without
+    # checking the "ordered" mark or the owner (0x477e98 -> FUN_00478370 at 0x477eb8): an allied player's ship with
+    # order 10 would be re-planned on this machine only. While AUTO runs (flag d_auto), that pass now skips ships
+    # of other owners.
+    d_auto = DATA2 + 0x00
     autoown = put('autoown', f'''
         push ebp
         mov ebp, esp
-        sub esp, 0x100
+        sub esp, 0x800
         push eax
         push ecx
         push edx
         push ebx
         push esi
         push edi
-        lea edi, [ebp-0x100]
+        lea edi, [ebp-0x800]
         xor eax, eax
-        mov ecx, 0x40
+        mov ecx, 0x200
         rep stosd
         mov esi, dword ptr [0x597864]
         xor edx, edx
     mark:
         cmp edx, dword ptr [0x602b14]
         jge marked
-        cmp edx, 0x800
+        cmp edx, 0x4000
         jge marked
         test byte ptr [esi+0x1b0], 1
         jz mnext
@@ -691,7 +701,7 @@ def apply(p):
         test byte ptr [esi+0x20c], 2
         jnz mnext
         or byte ptr [esi+0x20c], 2
-        bts dword ptr [ebp-0x100], edx
+        bts dword ptr [ebp-0x800], edx
         jmp mnext
     mstation:
         cmp eax, 5
@@ -699,7 +709,7 @@ def apply(p):
         test byte ptr [esi+0x330], 1
         jnz mnext
         or byte ptr [esi+0x330], 1
-        bts dword ptr [ebp-0x100], edx
+        bts dword ptr [ebp-0x800], edx
     mnext:
         add esi, 0x3c8
         inc edx
@@ -711,16 +721,18 @@ def apply(p):
         pop edx
         pop ecx
         pop eax
+        mov dword ptr [{d_auto:#x}], 1
         call 0x477670
+        mov dword ptr [{d_auto:#x}], 0
         pushad
         mov esi, dword ptr [0x597864]
         xor edx, edx
     clear:
         cmp edx, dword ptr [0x602b14]
         jge cleared
-        cmp edx, 0x800
+        cmp edx, 0x4000
         jge cleared
-        bt dword ptr [ebp-0x100], edx
+        bt dword ptr [ebp-0x800], edx
         jnc cnext
         cmp dword ptr [esi+0x178], 1
         jne cstation
@@ -739,6 +751,24 @@ def apply(p):
         ret
     ''')
     p.patch(0x474589, call_rel(0x474589, 0x477670), call_rel(0x474589, autoown))
+    autopass2 = put('autopass2', f'''
+        cmp dword ptr [eax+0x1fc], 0xa
+        jne 0x477c2c
+        cmp dword ptr [{d_auto:#x}], 0
+        je go
+        push ecx
+        push edx
+        movzx ecx, word ptr [eax+0x1dc]
+        movzx edx, byte ptr [0x5a2b2a]
+        cmp ecx, edx
+        pop edx
+        pop ecx
+        jne 0x477c2c
+    go:
+        jmp 0x477eb4
+    ''')
+    # 0x477ea7: cmp dword ptr [eax+0x1fc],10 / jne 0x477c2c (13 bytes); EAX = unit, ECX = side entry
+    p.patch(0x477ea7, '83b8fc0100000a0f8578fdffff', jmp_rel(0x477ea7, autopass2) + b'\x90' * 8)
 
     # ---- Fix L: options message 0x85 is parked while a turn is processed -----------------------------------
     # The host sends 0x85 whenever it closes the options dialog while idle. A client that is still processing
