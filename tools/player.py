@@ -4,7 +4,7 @@ production, sometimes buys, presses TURN when done and keeps clicking around whi
 other player and while the turn is processed. tools/observer.py traces and compares both games.
 usage: player.py <A..E> <seed> <logdir> [--heavy] [--home X,Y]
   --heavy   this player checks the galaxy-map tabs several times per turn
-Stops when <logdir>/stop exists."""
+Stops when <logdir>/stop exists; makes no input while <logdir>/pause exists."""
 import os, random, struct, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness as H
@@ -19,11 +19,15 @@ rnd = random.Random(seed * 10 + ord(INST))
 PID = H.load_state()[INST]
 dlg = Dialogs()
 STOP = os.path.join(out, 'stop')
+PAUSE = os.path.join(out, 'pause')
+RESYNC_TURN = os.path.join(out, 'resync_turn')       # tools/spike_live.sh: turn of the last resync transfer
 SPEED = float(os.environ.get('BOTF_SPEED', '0.4'))   # scales every pause of the agent (1.0 = slow, human-like)
 
 
 def nap(t):
     time.sleep(max(0.05, t * SPEED))
+    while os.path.exists(PAUSE) and not os.path.exists(STOP):   # resync spike: no input while a transfer runs
+        time.sleep(0.2)
 LOG = open(os.path.join(out, 'player_%s.log' % INST), 'a')
 ACT = open(os.path.join(out, 'player_%s_actions.log' % INST), 'a')
 
@@ -510,6 +514,8 @@ def main():
             find_home()
         pre = swap_new_build()
         steps = [browse, fleets, production] + ([diplomacy] if rnd.random() < (0.5 if ASSAULT else 0.35) else []) + ([assault] if ASSAULT else []) + ([intel] if ASSAULT and rnd.random() < 0.3 else [])
+        if os.path.exists(RESYNC_TURN) and open(RESYNC_TURN).read().strip() == str(t) and diplomacy in steps:
+            steps.remove(diplomacy)                          # resync spike finding F: stale diplomacy items until the next turn
         rnd.shuffle(steps)
         acts = list(pre)
         for f in steps:
@@ -521,8 +527,15 @@ def main():
             log('turn %d: TURN press failed' % t); screen(INST, PID, os.path.join('..', out, 'pressfail_%s_t%d' % (INST, t)))
             last = t; continue
         acts.append('TURN')
-        t0 = time.time(); waits = 0
+        t0 = time.time(); waits = 0; idle_same = 0
         while not stopped() and (turn() <= t or busy() != 0):   # wait for the other player and processing
+            # a resync transfer (tools/spike.py) loaded the game after TURN: same turn, not waiting any more
+            idle_same = idle_same + 1 if busy() == 0 and turn() == t else 0
+            if idle_same >= 3:
+                log('turn %d: idle again after TURN (resync load), pressing TURN again' % t)
+                if not press(t):
+                    break
+                acts.append('TURN(again)'); idle_same = 0
             if busy() == -1 and rnd.random() < (0.5 if HEAVY else 0.2):
                 acts += ['(waiting)' + a for a in browse(rnd.randint(1, 3))]
             elif busy() == 1 and waits < 2 and rnd.random() < 0.3:

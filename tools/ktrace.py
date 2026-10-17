@@ -14,6 +14,8 @@ LASTLOAD = {'name': '', 'buf': 0, 'size': 0}
 if os.environ.get('HEAPTRACE') == '1':     # SmartHeap MemAllocPtr return / MemFreePtr entry: double free, reuse of live blocks
     BPS.update({0x530132: 'halloc', 0x530554: 'hfree'})
 HEAP = {'live': {}, 'freed': {}, 'n': 0}
+for _a in filter(None, os.environ.get('STACKBPS', '').split(',')):   # e.g. STACKBPS=4e9923: deep stack at each hit
+    BPS[int(_a, 16)] = 'stackbp'
 u32 = lambda hp, a: struct.unpack('<I', rpm(hp, a, 4))[0]
 
 def stack(hp, esp, depth=6, span=0x300):
@@ -89,6 +91,10 @@ def main():
                                 print('%7.3f turn %d busy %d OVERFLOW tid %d file %s buf %08x (alloc %08x) cursor %d + len %d > alloc size %d  stack %s' % (
                                     time.time() - t0, turn, busy, ev.dwThreadId, LASTLOAD['name'], buf, LASTLOAD['buf'], cur, ctx.Edx,
                                     LASTLOAD['size'], stack(hp, ctx.Esp, 24, 0x1000)))
+                    elif BPS[addr] == 'stackbp':
+                        print('%7.3f turn %d busy %d STACKBP %06x eax %08x ebx %08x ecx %08x edx %08x esi %08x edi %08x ebp %08x  stack %s' % (
+                            time.time() - t0, turn, busy, addr, ctx.Eax, ctx.Ebx, ctx.Ecx, ctx.Edx, ctx.Esi, ctx.Edi, ctx.Ebp,
+                            stack(hp, ctx.Esp, 48, 0x4000)))
                     elif BPS[addr] == 'kill':
                         key = rpm(hp, ctx.Eax, 0x18)
                         s, tg, e = struct.unpack('<IIH', key[:10])

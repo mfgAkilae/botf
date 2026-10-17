@@ -13,7 +13,7 @@ for x in A B C D E; do $H kill $x >/dev/null 2>&1 || true; done
 sleep 1
 for x in A B C D E; do
   grep -qi "\\\\$x\\\\trek.exe" $TEST/$x/dxwnd.dxw || { echo "dxwnd.dxw of $x points elsewhere"; exit 1; }
-  cp "$EXE" $TEST/$x/trek.exe; : > $TEST/$x/Crash.log
+  ov=EXE_$x; cp "${!ov:-$EXE}" $TEST/$x/trek.exe; : > $TEST/$x/Crash.log     # EXE_C=other.exe: per-instance build
 done
 rm -f "$TEST"/?/dxwnd.lockfile.tmp      # stale after a crash: dxwnd does not hook, the game goes fullscreen
 tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath '$(cygpath -w "$DPLAY/dplaysvr.exe")' -WorkingDirectory '$(cygpath -w "$DPLAY")' -WindowStyle Hidden"

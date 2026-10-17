@@ -1,9 +1,9 @@
-# DRAFT v9: self-healing multiplayer ("resync instead of synchronization error")
+# DRAFT v10: self-healing multiplayer ("resync instead of synchronization error")
 
-Status: design draft after eight review rounds (Claude Fable, Codex gpt-6-astra); not implemented. Round 8
-(Astra only) verdict on v8: "needs another revision; after the corrections suitable for the spike, not yet for
-implementation approval" — all literal byte sequences verified, the target turn T confirmed. v9 integrates the
-round-8 findings (section 15). Sections 1–8 are normative; the appendix (sections 9–15) is non-normative history.
+Status: design draft after eight review rounds (Claude Fable, Codex gpt-6-astra); the spike of section 7 is
+implemented in a test build and run (results and findings in §7.1); the protocol is not implemented. v10 adds the
+spike's findings to the normative sections (section 16). Sections 1–8 are normative; the appendix (sections
+9–16) is non-normative history.
 Addresses: trek.exe 2.0.4 EN. [V] = verified in the disassembly (by a reviewer or by us), [I] = inference.
 
 Terms used throughout: **loop-top step** = our code at the main-loop hook 0x402201; **TICK** = the private
@@ -36,7 +36,8 @@ ends the game exactly like today.
 - **Mask input** [V]: `edx = [0x5a2994]` at 0x50da88, tested at 0x50dcc0. 0 → local pre-load mask
   `[0x5a2b28]`; ≠ 0 → load first (0x50dce7), then mask `= [0x5a2998]` from the file (0x50dcf8). `[0x5a2998]`
   is offset 0xc0 of the saved block. `[0x5a2994]` is also read post-turn (0x458238), in the dispatcher (0x50aa74)
-  and by lobby code; it stays 1 in a lobby-resumed game. The resume path additionally skips `FUN_0043a0a0`
+  and by lobby code. A lobby resume sets it while the saved game is distributed; in the running resumed game it
+  was 0 again (spike §7.1, finding C; cleared at 0x50fa15 [I]). The resume path additionally skips `FUN_0043a0a0`
   (0x50dbb6..0x50dbc9 → `FUN_0044d300`, which can restart production).
 - **Teardown on load** [V]: with `[0x5a2920] == 1`, `FUN_004387f0` calls `FUN_0043d0d0` (0x4388f3), which in
   multiplayer calls `FUN_0050d670` (0x43d0f2, only when `[0x5b1a88] != 0`: lobby score messages) and
@@ -72,9 +73,11 @@ ends the game exactly like today.
   WM_ACTIVATEAPP handler `FUN_00401cc0`. A machine with an inactive window hangs in its turn start (stock). The
   outer loop top 0x402201 = `56 56 56 56 53`; modal dialogs and the combat pump never pass it.
 - **Send ordering** [V/I]: fragments are sent with DPSEND_GUARANTEED; all game messages leave synchronously from
-  the main thread; in-order delivery per sender pair is a DirectPlay property (assumed, checked in the spike).
+  the main thread; in-order delivery per sender pair is a DirectPlay property (observed in the spike, §7.1).
 - **Production** [V]: progress accumulates on every machine without an owner check (0x4624af); only the re-arm
-  of the next item is owner-dependent (0x4616e4).
+  of the next item is owner-dependent (0x4616e4). The production records at system +0x80..+0xa7 (current and
+  last) have an owner form and a non-owner form between turns (mode 1 / mode 2 kill difference, outside every
+  CRC; spike finding E): a file carries its writer's forms, and after a load every machine holds the host's.
 
 ## 3. Protocol
 
@@ -221,7 +224,10 @@ Rate limit (host only): at most 2 accepted transactions per 10 turns; a further 
 ### 4.3 Loop-top step and TICK
 
 - **Loop-top step** (hook 0x402201, five pushes replayed, all registers preserved): checks deadlines, performs
-  the host's steps (§4.5), re-dispatches one queued entry, sends LOADED after a successful apply.
+  the host's steps (§4.5), re-dispatches one queued entry, sends LOADED after a successful apply. **Turn start**
+  (first iteration with `[0x5a291c] == 0` and a new `[0x5a2918]`, no transaction running): snapshot of system
+  +0x80..+0xa7 of every system the local empire owns; the transport host also writes its turn-start save
+  (`[0x5a2998] = [0x5a2b28]`, `FUN_00438630(eax = -0xd)`) — spike finding E.
 - **TICK** = window message `WM_APP + 0x92`, intercepted in the window proc at 0x401507: checks deadlines with
   all registers preserved, returns eax = 0 through 0x401613; any other message replays the cmp and continues at
   0x40150d. Posted by a rate-limited helper (push 0, push 0, push WM_APP+0x92, push `[0x5a074c]`, call
@@ -250,9 +256,19 @@ call to `FUN_0050dd90`; at 0x50dd7b the call goes to the **apply helper**:
 3. set `[0x5a2990] = 0` and `[0x5a2994] = 1`; reset the file-open and tail flags;
 4. call `FUN_0050da70` — inside it: `FUN_0043d0d0` skips 0x43d0f2 and 0x43d0f7 while `rs_apply` is held (call
    hooks); the file-open flag at 0x4387fb (reproduce `cmp eax,1` / `je 0x438805`, record eax == 1); the tail flag
-   at 0x4389c0 (call `FUN_0051c9c0`, set the flag, continue at 0x4389c5); `FUN_0050d010` closes the dialog;
+   at 0x4389c0 (call `FUN_0051c9c0`, set the flag, continue at 0x4389c5); `FUN_0050d010` closes the dialog; the
+   **incident guard** at 0x44ce41 (spike finding D): the load resets the incident list (`FUN_0044b8e0` from
+   0x43897b: `[0x58fd70] = [0x58fd74] = 0`) while an open incident popup survives, and the screen switch of the
+   apply (0x50dc8c → `FUN_004b9180` → `FUN_005001b0` → `FUN_0044ce40`) advances the NULL list
+   (`FUN_0051b7a0` → access violation at 0x51b7a1); with an empty list the advance ends the incident sequence
+   the stock way (0x44ce6b); **owner production records** (spike finding E): the tail hook writes back the
+   local empire's turn-start snapshot of system +0x80..+0xa7 (taken by the loop-top step, §4.3) when the snapshot
+   is of the turn being applied; the info box guard at 0x4e990e (the assert's ignore path 0x4e992c) stays as a
+   safety net;
 5. **common cleanup, every exit**: restore `[0x5a2994]`; `[0x5a2990] = [0x5fd978]`; release the receive slots
-   the Fix Y way; `FUN_00510230`; release `rs_apply`;
+   the Fix Y way; `FUN_00510230`; enable the turn UI (`FUN_004b9110`) when the load has reset the turn state
+   (`[0x5a291c] == 0`) and it is still disabled (`[0x594d20]` or `[0x593250]`, set by `FUN_004b90a0` at END TURN;
+   spike finding A); release `rs_apply`;
 6. **only on success** (both flags set, no pending ABORT): recompute — `FUN_00508080` (esi = dedicated 0x120-byte
    buffer; reload esi afterwards), `FUN_00447b40` (eax = 0x597610, edx = 0x597612, ebx = 0x597614),
    `FUN_0043db00` → 0x597616, `FUN_0045d570` → 0x597618, zero buffer dwords +4..+0x14 — and send LOADED;
@@ -263,8 +279,9 @@ call to `FUN_0050dd90`; at 0x50dd7b the call goes to the **apply helper**:
 
 1. phase 1 until 0x71-complete (§3.4); then FREEZE, own gates, own QUIET marked; phase 2;
 2. QUIET from every member of P (D_quiet);
-3. `[0x5a2998] = [0x5a2b28]`; save `auto.sav` with `FUN_00438630(eax = -0xd)` (also with autosave off); length
-   and CRC32 of that file; SNAPINFO; phase 3;
+3. the host's **turn-start save** of the target turn (written by the loop-top step at the first iteration after
+   its turn processing: `[0x5a2998] = [0x5a2b28]`, `FUN_00438630(eax = -0xd)`, also with autosave off; spike
+   finding E) — saving now only as a logged fallback; length and CRC32 of that file; SNAPINFO; phase 3;
 4. `mov eax,0x89; call 0x5199c0` (no body); `FUN_0050de40(eax = -0xd, edx = 0)`;
 5. own apply: the helper of §4.4 from step 1, called directly in the same step (no raw-buffer check; the host
    validated its own file in step 3);
@@ -281,14 +298,15 @@ receive state (0x50d83c, 0x50d870..0x50d894) or starts a turn (0x50d8a4).
 
 - Input of the current turn is lost everywhere; build queues come back from the file and are re-sent at the
   next END TURN.
-- Production: progress is replicated; open is only the item an owner re-armed in the last turn (acceptance:
-  compare host/owner/third-party records, queues and orders before and after).
+- Production: the game continues from the turn start: everybody takes the host's turn-start state, each owner
+  its own turn-start production records (spike finding E); progress is replicated, open is only the item an
+  owner re-armed in the last turn.
 - A wait dialog during the transfer.
 
 ## 6. Risks (ranked)
 
-1. Transport survival without the two teardown calls — spike.
-2. Per-sender in-order delivery (fence) — spike.
+1. Transport survival without the two teardown calls — passed in the spike (§7.1).
+2. Per-sender in-order delivery (fence) — observed in the spike (§7.1), also across a multi-fragment 0x72.
 3. Re-entrancy — queue + loop-top step + `rs_apply`.
 4. Protocol races — phases, target turn, deadlines, fence.
 5. Membership changes — abort before mutation.
@@ -314,8 +332,9 @@ the host writes its own, the tool copies them into every client), `rs_guard`, `r
 `sp_flag_tail`, `sp_log[]` (CRC words + RNG + mask per apply, failures), RNG buffer 0x120 bytes.
 
 **States** (all machines; the tool writes `sp_state`)
-1. PREPARE (host only): at its loop top the host writes `[0x5a2998] = [0x5a2b28]`, saves `auto.sav`, computes
-   length/CRC32 into `sp_len`/`sp_crc`, logs and **stops** (`sp_state` stays 1).
+1. PREPARE (host only): at its loop top the host takes its turn-start save of this turn (after finding E; saving
+   now with `[0x5a2998] = [0x5a2b28]` is the logged fallback), computes length/CRC32 into `sp_len`/`sp_crc`,
+   logs and **stops** (`sp_state` stays 1).
 2. ARMED (all machines): the tool copies `sp_len`/`sp_crc` from the host into every client and sets `sp_state = 2`
    everywhere; from now on `rs_guard` is set and 0x89/0x72 are queued, compares are skipped (0x510002) and timer
    END TURN is deferred (Fix K cave).
@@ -332,7 +351,7 @@ the host writes its own, the tool copies them into every client), `rs_guard`, `r
 
 | Site | Original bytes | Spike behaviour |
 |---|---|---|
-| 0x402201 | `56 56 56 56 53` | loop-top step: PREPARE / SEND on the host, DRAIN re-dispatch, DONE reset |
+| 0x402201 | `56 56 56 56 53` | loop-top step: turn-start snapshot (and the host's turn-start save, finding E), PREPARE / SEND on the host, DRAIN re-dispatch, DONE reset |
 | 0x50a6ef | `e8 0c 5f 00 00` | not needed in the spike (no control messages); reserved for §3.3 |
 | 0x50a709 | `66 89 04 24 8b 04 24` | queue 0x89/0x72 while `sp_state` is 2..4; the one-shot token passes exactly the re-dispatched entry |
 | 0x50dd76 | `e8 15 00 00 00` | raw-buffer check against `sp_len`/`sp_crc` (failure: free once, skip, 0x50dd80, log, close dialog) |
@@ -340,9 +359,11 @@ the host writes its own, the tool copies them into every client), `rs_guard`, `r
 | 0x43d0f2, 0x43d0f7 | `e8 79 05 0d 00`, `e8 84 ca 0d 00` | skip while `rs_apply` |
 | 0x4387fb | `83 f8 01 74 05` | file-open flag |
 | 0x4389c0 | `e8 fb 3f 0e 00` | tail flag |
+| 0x4e990e | `bd 5c 1a 58 00` | info box guard (added after the live runs, finding E) |
 | 0x4024d8 | `3b 35 d4 28 5a 00` | idle exit while `rs_guard` |
 | 0x510002 | `83 bd c0 cf 5c 00 ff` | skip compares while `sp_state` is 2..4 |
 | 0x4b9f6a (existing Fix K cave) | — | defer timer END TURN while `sp_state` is 2..4 |
+| 0x44ce41 | `a1 74 fd 58 00` + `e8 55 e9 0c 00` | incident guard (added after the live run, finding D) |
 
 Overwritten bytes ≈ 56 (+ the Fix K condition); helper code ≈ 500–700 bytes; data ≈ 0x120 + 80 bytes. The CRC32
 is our own small bitwise routine.
@@ -361,12 +382,75 @@ afterwards; production fields of host-owned, client-owned and third-party system
 received 0x400 logged against the player table; arrival order of numbered test messages from two senders with
 artificial delay logged; queue empty and every record consumed exactly once (pool counters before/after).
 
+### 7.1 Spike results (2026-10-17)
+
+Implementation: `tools/spike_resync.py` (patch module, `build_test.py --fix --spike`), driver `tools/spike.py`,
+runs under play `tools/spike_live.sh` (agents pause during a transfer, as END TURN would be gated). About 3.7 KB
+code and 0x7a00 bytes data in the enlarged shim section, chained into the Fix B and Fix K caves. Test bed: five
+instances on one computer, small spiral galaxy. Procedures 1, 2, 4, 5 and 6 were repeated with the final build.
+
+| Procedure | Result |
+|---|---|
+| 1 idle, divergence poked on a client | passed: 0.3 s per transfer (48–98 KB save); the divergence is healed (full state compare 0 differences), then turns in sync |
+| 2 a client waiting (BUSY −1) | passed after finding A |
+| 3 a client BUSY (`--slowend`: after the last turn phase) | queue and apply passed (0x89 and 0x72 queued during the turn processing, applied afterwards); finding B |
+| 4 system screen open; host and client inactive; focus changes | passed |
+| 5 two transfers in a row; lobby-resumed game | passed; finding C |
+| 6 wrong CRC32 on a client; host file missing | passed: rejected, buffer freed once, dialog closed, no load, a second transfer heals the client; the host fails before sending and the clients are reset from ARMED |
+| order evidence | 2 × 100 numbered messages from two senders, also with 40 ms per packet: in order per sender on every receiver (interleaved up to 17 times); the host's multi-fragment 0x72 is dispatched before the messages it sent afterwards |
+| under play (five agents: builds, buys, labor, fleets, diplomacy, combat) | findings D, E, F; with the final build (run 8): four transfers at turns 4, 7, 10 and 13, 26 turns, 14 turns in sync after the last transfer, no heartbeat mismatch, no crash (the agents skip the diplomacy screen in a transfer turn, finding F) |
+
+Acceptance after every passed apply: DirectPlay ids, player table, session strings and transport object
+unchanged; `[0x597504]` equals the loaded `[0x5a2b28]`; CRC words and normalised RNG equal on all five; full
+state compare (systems including the production fields, empires) without differences apart from each owner's
+production records of its own systems (finding E, as at every turn start); queue empty, token clear; every
+0x89/0x72 queued once and re-dispatched once, every 0x89 record retired once; receive list length unchanged.
+With 40 ms per packet on the host a transfer takes 7–10 s.
+
+Findings:
+- **A turn UI**: END TURN disables the turn UI (`FUN_004b90a0`, flags `[0x594d20]`/`[0x593250]`) and only the end
+  of the turn processing enables it again (`FUN_004b9110`); a machine that had ended the turn kept a dead END TURN
+  button after the load. Fixed in the helper (§4.4 step 5).
+- **B stale 0x71**: a machine still in its turn processing when the others apply sends its own 0x71 of that turn
+  afterwards; every other machine compares it at once (idle, 0x510487) against the RNG after the load (the load
+  re-initialises it) and shows the stock synchronization error (0x51031f). Confirms the per-sender fence for 0x71
+  (§3.5) and the phase-1 rule (FREEZE only after 0x71-complete), which the spike leaves out.
+- **C resume flag**: `[0x5a2994]` was 0 in a running lobby-resumed game; the helper's save/restore also keeps a
+  forced 1 (§2 corrected).
+- **D incident popup**: the load resets the incident list while an incident popup stays open; the apply's screen
+  switch advances the NULL list (access violation 0x51b7a1, two clients died). Guard at 0x44ce41 (§4.4).
+- **E owner production records**: system +0x80..+0xa7 differs between owner and non-owners between turns. After
+  the load (host's save made at PREPARE) an owner held the host's non-owner form of its own systems and died in
+  its own UI: galaxy-map info box (infobox.c line 1161, 0x4e9923, three clients) and system screen (redifice.c
+  line 267, structure id 0x7fff). Three variants:
+  1. keep each owner's current records across the load — desynchronised: two turns later the owner had one
+     building more (crcSolarBld, system Manu), its record held the effect of current-turn input that the load
+     drops everywhere else;
+  2. take the host's forms and guard the info box — the system screen asserted next;
+  3. **turn-start configuration** (kept): the host transfers its turn-start save, every machine takes a snapshot
+     of its own systems' records at its turn start (first loop-top iteration after the turn processing) and the
+     load's tail hook writes it back. This is the configuration of every normal turn start; current-turn input is
+     dropped everywhere, the host's included. Run 8: four transfers under play, no UI assert, the info box guard
+     never needed.
+- **F diplomacy items**: after a transfer, a click in the diplomacy screen (F5) copied 0x48c bytes from a freed
+  object (`FUN_004c81f0` from `FUN_004c2f40`, access violation 0x4c820b): the screen's items point to order
+  bodies (`FUN_004c5340` builds them from the current turn's orders), and the load replaces the order list. Not
+  fixed in the spike (the agents skip the diplomacy screen in a transfer turn); open in §8.
+- **G turn phases**: the turn processing is synchronous across machines (phase messages 0x6a..0x70); a client
+  can only lag behind the host after the last phase (0x4586d6), which is where `--slowend` delays.
+- Right after an apply the CRC word 0x597614 (`FUN_00466360`, list `[0x5b5390]`) is 0 on every machine; the
+  next turn computes it normally.
+
 ## 8. Open questions
 
 - The terminal helper (§3.6) and the reordered lookup at 0x50a6ef (§3.3) — verify after the spike, before the
   protocol is implemented.
 - New PE section support in the patcher (all variants).
-- Exact deadline values after the spike's transfer-time measurements.
+- Exact deadline values: the spike measured 0.3 s per transfer (48–82 KB save) on one computer and 7–10 s with
+  40 ms per packet on the host (`--latency 40`); D_loaded (300 s) and D_member (660 s) have ample margin.
+- UI state that refers to objects the load frees or resets: findings A, D and F were found only under play.
+  The diplomacy screen's items (finding F) need a rebuild after the load; a systematic audit of the per-turn UI
+  caches (what the end of the turn processing rebuilds, 0x45856b..0x4586d6) is open.
 
 ---
 
@@ -502,3 +586,15 @@ are **not** part of the design; sections 1–8 above are authoritative.
 | incompatible T left to time out | REQ with T not in {host turn, host turn + 1} → NACK | Astra |
 | spike trigger saved, sent and applied in one step | staged states PREPARE / ARMED / SEND / DRAIN / DONE with reset on every exit; spike in the enlarged test shim section | Astra (rank 6) |
 | `SetSessionDesc` "harmless" [V]; "no other call closes the transport" [V] | consequence [I]; universal negative [I] | Astra |
+
+## 16. Changes against v9 (spike)
+
+| v9 | v10 | Source |
+|---|---|---|
+| `[0x5a2994]` "stays 1 in a lobby-resumed game" | 0 in the running resumed game | spike, finding C |
+| helper cleanup without UI | turn UI enabled again after the load | spike, finding A |
+| load hooks: teardown, file-open flag, tail flag | plus incident guard at 0x44ce41, owner records written back at the tail, info box guard at 0x4e990e as a safety net | spike, findings D and E |
+| host saves at step 3 (PREPARE) | host transfers its turn-start save; every machine snapshots its own production records at its turn start | spike, finding E |
+| production "replicated" | owner and non-owner forms of +0x80..+0xa7; turn-start configuration restored | spike, finding E |
+| transport survival, per-sender order: risks for the spike | observed in the spike | spike |
+| deadline values open | 0.3 s per transfer on one computer, 7–10 s with 40 ms per packet | spike |

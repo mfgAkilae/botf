@@ -1,10 +1,14 @@
 """Build a TEST-ONLY trek.exe: allow multiple instances and drive the cursor from memory.
-usage: build_test.py <in.exe> <out.exe> [--fix] [--nofixs] [--heapstress N] [--latency MS] [--delay74 MS]
+usage: build_test.py <in.exe> <out.exe> [--fix] [--nofixs] [--heapstress N] [--latency MS] [--delay74 MS] [--spike]
   --nofixs       with --fix: leave out Fix S (heap pool serialization), for A/B tests
   --heapstress N with --fix: the network receive thread does N malloc/free pairs every 1 ms
   --fix          apply the multiplayer fix (netfix.py)
   --latency MS   per-packet sleep in the send loop (emulates a slow link, max 127)
   --delay74 MS   extra delay before the production-queue message 0x74 is sent
+  --slowend MS   with --fix: stay BUSY (pumping) for MS after the last turn phase, the others are idle meanwhile
+  --spike        with --fix: the resync spike (spike_resync.py, docs/resync_design_draft.md section 7) in the
+                 enlarged shim section; its data addresses go to <out.exe>.json under 'spike'
+  --spike-nopump the spike without the pump override at 0x4024d8 (negative control for inactive windows)
 Writes <out.exe>.json with the address of the fake cursor block.
   block+0 fake_x (game coords 0..799), +4 fake_y, +8 enable flag
 """
@@ -25,6 +29,7 @@ latency = opt('--latency')
 delay74 = opt('--delay74')
 slowphase = opt('--slowphase')
 slowai = opt('--slowai')
+slowend = opt('--slowend')
 
 # 1) single instance check: FindWindow result ignored
 p.patch(0x401df9, '89c685c07428', '31c089c67428')
@@ -38,7 +43,11 @@ p.patch(0x40232e, '750c', 'eb0c')
 p.patch(0x401cca, '85d2', 'eb64')
 
 # 2) cursor shim (first new section -> fixed address 0x69e000)
-sec = p.add_section('.tstshim', 0x200, 0xE0000060)
+spike = '--spike' in sys.argv or '--spike-nopump' in sys.argv
+if spike:
+    import spike_resync
+    assert '--fix' in sys.argv, '--spike needs --fix (it chains into the Fix B and Fix K caves)'
+sec = p.add_section('.tstshim', spike_resync.SECTION_SIZE if spike else 0x200, 0xE0000060)
 blk = sec
 stub = sec + 0x20
 IAT_GETCURSORPOS = 0x574600
@@ -63,6 +72,11 @@ if '--fix' in sys.argv:
     import netfix
     info = netfix.apply(p)
     print('netfix', {k: hex(v) for k, v in info.items()})
+
+spike_info = None
+if spike:
+    spike_info = spike_resync.apply(p, sec, info, pump_override='--spike-nopump' not in sys.argv)
+    print('spike code', {k: hex(v) for k, v in spike_info['code'].items()})
 
 if latency is not None:
     assert 0 <= latency <= 127
@@ -91,6 +105,31 @@ if slowai is not None:
     p.write(cave3, asm(f'push {slowai}; call dword ptr [0x574594]; jmp 0x458720', cave3))
     p.patch(0x4582cc, call_rel(0x4582cc, 0x458720), call_rel(0x4582cc, cave3))
     print('slowai', slowai)
+
+if slowend is not None:
+    # Stay in turn processing for <slowend> ms after the last turn phase (right before BUSY is cleared at 0x4586d6)
+    # and keep pumping meanwhile: the other machines are idle again while this one is still BUSY (the phases
+    # before are synchronous, --slowai delays every machine). Needs --fix (the netfix call at 0x4586d6).
+    endturn = info['endturn']
+    cave5 = sec + 0x1a0
+    p.write(cave5, asm(f'''
+        pushad
+        mov esi, {max(1, slowend // 100)}
+    se_loop:
+        push 100
+        call dword ptr [0x574594]
+        sub esp, 0x20
+        mov eax, esp
+        call 0x4024c0
+        add esp, 0x20
+        dec esi
+        jne se_loop
+        popad
+        jmp {endturn:#x}
+    ''', cave5))
+    assert cave5 + 0x40 <= sec + 0x200
+    p.patch(0x4586d6, (call_rel(0x4586d6, endturn) + bytes(3 * [0x90])).hex(), call_rel(0x4586d6, cave5) + bytes(3 * [0x90]))
+    print('slowend', slowend)
 
 if '--nofixs' in sys.argv:
     # all fixes except Fix S (default heap pool without MEM_POOL_SERIALIZE), for A/B tests of the heap race
@@ -130,5 +169,8 @@ if heapstress is not None:
     print('heapstress', heapstress)
 
 p.save(dst)
-json.dump({'cursor_block': blk}, open(dst + '.json', 'w'))
+meta = {'cursor_block': blk}
+if spike_info:
+    meta['spike'] = spike_info['fields']
+json.dump(meta, open(dst + '.json', 'w'))
 print('ok cursor block %#x' % blk)

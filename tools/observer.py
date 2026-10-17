@@ -46,6 +46,9 @@ try:
             for t in snaps: snaps[t].pop(x, None)
             log('%s (empire %d) removed after its elimination; remaining %s' % (x, LOCAL[x], NAMES))
         live = [x for x in NAMES if x not in OUT]
+        if os.path.exists(os.path.join(out, 'pause')):       # resync spike transfer (tools/spike_live.sh): the
+            time.sleep(1); last_progress = time.time()        # games load, turn and mask are 0 for a moment
+            continue
         if len(live) < 2:                                    # nothing left to compare with
             reason = 'only %s left' % live; break
         force_active({x: P[x] for x in live})
