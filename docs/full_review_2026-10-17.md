@@ -169,3 +169,23 @@ fix. Commands are in `tools/`.
   task-force id changes on B only and the heartbeat checksum differs at the end of the turn. With Fix RD (the
   dialog's three state-changing callbacks do nothing in multiplayer while the turn is not idle) the drag is only
   drawn, nothing changes, all five stay in sync; a drag while idle is still turned into orders at END TURN.
+- **Code cave read by the movie thread: fixed (Fix MV).** Reported by a reviewer of the patch: the "unused" block
+  0x516e60..0x517e00 that holds the fix code is the zero initialiser the movie playback thread copies into a
+  4000-byte local structure (0x517f78). The thread now zero-fills the structure itself. A scan of all eight
+  installer builds found no other reference into the block.
+- **R5, R6 and the leave during a battle: reproduced, fixed (Fix BL).** `tools/r5leave.sh`: manual battle B vs E
+  from `saves/war5_01_t280`, E ends the first round, then E's game is closed. Without the fix A, C and D wait
+  forever in the battle-result wait (one block missing: their leave handler found the player table already cleared
+  by B's broadcast and skipped the count) while B goes on. A first fix of the barriers and the count let the game
+  continue but crashed one turn later on every computer ("Battle list CRC error", battle.c line 2487): only B, which
+  heard of the leave itself, ran the AI takeover (`FUN_0043a160`, every task force of the empire gets mission 5);
+  A, C and D took the player mask from B's table broadcast (`FUN_00510e00`) and never ran it. Fix BL: the round
+  barriers finish when every remaining participant acknowledged; the result wait ends when every computer that is
+  still a player delivered its block; the table broadcast runs the leave steps (takeover, order cleanup, order
+  re-check) for every player it removes, so each computer runs them exactly once. With the fix all four continue
+  and stay in sync for three turns. The plain drop tests (`tools/droptest.sh`, `tools/ytest.sh`) stay in sync.
+  Still open (N5): the leave steps run when the notice arrives, not at a fixed point of the turn; in the test all
+  computers were waiting at the same barrier, which makes that point the same.
+- **Hall of Fame after END TURN (community report): not reproduced.** `tools/hoftest.sh`: B ends the turn and
+  opens the Hall of Fame, the others end the turn; in sync with and without the fixes (test bed, windows active).
+  SAVE GAME is disabled after END TURN, for the host too.

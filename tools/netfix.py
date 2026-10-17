@@ -1345,5 +1345,155 @@ def apply(p):
     turn_guard('rdleave', 0x4fef90, 'push ebx\n push ecx\n push edx\n push esi\n push edi', 0x4fef95)
     turn_guard('rdjoin', 0x4ff0a0, 'push ecx\n push edi\n mov edi, edx\n movsx ecx, dx', 0x4ff0a7)
 
+    # ---- Fix BL: a player who leaves during the battle phase no longer stalls or miscounts it -------------------
+    # (1) The round barriers of a tactical battle (FUN_00473bb0 at 0x473d5c, FUN_004742a0 at 0x474357) wait until
+    # the acknowledgement mask equals exactly the battle's participants that are still players ([0x5a2b28]). A
+    # participant who acknowledged the round and then left keeps his bit in the acknowledgement mask while the
+    # player mask loses it, so the others wait forever (review finding R5). The barriers now finish when every
+    # remaining participant has acknowledged.
+    # (2) In the battle phase every computer waits for one result block (message 0x6f) from each other player:
+    # counter [0x59056c] = players - 1, decremented by every block (FUN_00475090) and by every player who leaves
+    # (0x50d901 -> FUN_0046fd60). A leaver whose block had already arrived was counted twice, so the wait ended one
+    # block early and the last block was left unapplied on that computer only (review finding R6). The blocks
+    # received in this phase are now recorded per empire (the block's sender id is mapped through the player table
+    # 0x5a29f8); a leave counts only when his block has not arrived, and a block that arrives from a player who
+    # already left is kept but not counted again.
+    d_resmask = DATA2 + 0x04
+    for name, at, off, cont, done in (('blbar1', 0x473d5c, 0xc, 0x473d65, 0x473e29),
+                                      ('blbar2', 0x474357, 0xd, 0x47435c, 0x47437e)):
+        cave = put(name, f'''
+            push ecx
+            mov cl, byte ptr [eax+{off:#x}]
+            and cl, bl
+            cmp cl, bl
+            pop ecx
+            jne {done:#x}
+            jmp {cont:#x}
+        ''')
+        n = cont - at
+        p.patch(at, p.read(at, n).hex(), jmp_rel(at, cave) + b'\x90' * (n - 5))
+    blinit = put('blinit', f'''
+        xor esi, esi
+        mov dword ptr [0x59056c], edx
+        mov dword ptr [0x5b5504], esi
+        mov dword ptr [{d_resmask:#x}], 0
+        jmp 0x46ffa7
+    ''')
+    # 0x46ff99: xor esi,esi / mov [0x59056c],edx / mov [0x5b5504],esi (14 bytes; counter set for this phase)
+    p.patch(0x46ff99, '31f689156c05590089350455 5b00'.replace(' ', ''), jmp_rel(0x46ff99, blinit) + b'\x90' * 9)
+    blrx = put('blrx', f'''
+        push eax
+        push ecx
+        mov eax, 0x5a29f8
+        xor ecx, ecx
+    find:
+        cmp edi, dword ptr [eax+0x28]
+        je found
+        add eax, 0x34
+        inc ecx
+        cmp ecx, 5
+        jb find
+        jmp skip
+    found:
+        movzx ecx, byte ptr [eax+0x2c]
+        cmp ecx, 5
+        jae store
+        bt dword ptr [0x5a2b28], ecx
+        jnc skip
+        bts dword ptr [{d_resmask:#x}], ecx
+    store:
+        mov dword ptr [0x59056c], ebx
+    skip:
+        pop ecx
+        pop eax
+        ret
+    ''')
+    # 0x4750f3: mov [0x59056c],ebx (EBX = counter - 1, EDI = sender id, ESI = block)
+    p.patch(0x4750f3, '891d6c055900', call_rel(0x4750f3, blrx) + b'\x90')
+    bldrop = put('bldrop', f'''
+        cmp esi, 5
+        jae go
+        bt dword ptr [{d_resmask:#x}], esi
+        jc done
+    go:
+        jmp 0x46fd60
+    done:
+        ret
+    ''')
+    # 0x50d901: call FUN_0046fd60 (ESI = the empire that left)
+    p.patch(0x50d901, call_rel(0x50d901, 0x46fd60), call_rel(0x50d901, bldrop))
+    # (3) The leave handler FUN_0050d730 does not always get that far: when the player table entry and the player
+    # mask were already cleared by another path, the handler sees an "Unknown Player" (empire 0xff) and skips the
+    # decrement, so the other computers waited forever for the leaver's block (reproduced with tools/r5leave.sh:
+    # E leaves during a tactical battle B vs E; A, C and D hang in the wait loop with one block missing, B goes on).
+    # The wait loop (0x474f0d) now ends when every computer that is still a player has delivered its block.
+    blwait = put('blwait', f'''
+        push eax
+        push ebx
+        push ecx
+        movzx eax, byte ptr [0x5a2b28]
+        mov ebx, dword ptr [{d_resmask:#x}]
+        movzx ecx, byte ptr [0x5a2b2a]
+        cmp ecx, 5
+        jae w_test
+        bts ebx, ecx
+    w_test:
+        and ebx, eax
+        cmp ebx, eax
+        pop ecx
+        pop ebx
+        pop eax
+        jne 0x474f01
+        jmp 0x474f37
+    ''')
+    # 0x474f0d..0x474f37: loop until the counter [0x59056c] is 0 (assert battle.c line 416 when it is negative)
+    p.patch(0x474f0d, p.read(0x474f0d, 0x2a).hex(), jmp_rel(0x474f0d, blwait) + b'\x90' * 0x25)
+    # (4) A computer learns that a player left in one of two ways: its own DirectPlay notice (leave handler
+    # FUN_0050d730: AI takeover FUN_0043a160 - every task force of the empire gets mission 5 -, order cleanup
+    # FUN_00457dc0, and a re-check of the received orders FUN_00458170 while waiting), or the player table and mask
+    # that another computer broadcasts after its own notice (FUN_00510e00, applied at 0x510e81). The second way only
+    # copied the mask; the later own notice then finds an "Unknown Player" and does nothing. So only the computers
+    # that heard it first ran the takeover -> task forces differ -> sync error (reproduced with tools/r5leave.sh: B
+    # heard it first and broadcast; "Battle list CRC error", battle.c line 2487, one turn later on A, B and D). Now
+    # the table broadcast runs the same steps for every player it removes from the mask, so each computer runs
+    # them exactly once, whichever way comes first.
+    bltable = put('bltable', '''
+        mov al, byte ptr [esp+0x108]
+        push ebx
+        push esi
+        movzx ebx, byte ptr [0x5a2b28]
+        movzx esi, al
+        mov byte ptr [0x5a2b28], al
+        not esi
+        and ebx, esi
+        and ebx, 0x1f
+        cmp dword ptr [0x5a2920], 0
+        je t_done
+    t_next:
+        bsf esi, ebx
+        jz t_done
+        btr ebx, esi
+        bt dword ptr [0x5a2b50], esi
+        jc t_next
+        pushad
+        mov eax, esi
+        call 0x43a160
+        mov eax, esi
+        call 0x457dc0
+        cmp dword ptr [0x5a291c], 1
+        je t_busy
+        xor eax, eax
+        call 0x458170
+    t_busy:
+        popad
+        jmp t_next
+    t_done:
+        pop esi
+        pop ebx
+        jmp 0x510e8d
+    ''')
+    # 0x510e81: mov al,[esp+0x108] / mov [0x5a2b28],al (12 bytes)
+    p.patch(0x510e81, '8a842408010000a2282b5a00', jmp_rel(0x510e81, bltable) + b'\x90' * 7)
+
     out["code_end"] = code
     return out
