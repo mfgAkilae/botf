@@ -474,6 +474,10 @@ def apply(p):
     # Now, in MP while busy == 1 and before this turn's production step, both restarts are queued and run right
     # after FUN_00461640 (0x46252f). Shipyard losses after the production step (sabotage, research) restart at
     # once as before: the snapshot is already taken then.
+    # A deferred restart of the second kind (empty queue, any human player's system) is skipped when the system
+    # no longer belongs to a human player or has no queue any more: a computer empire can conquer it later in the
+    # same processing (bombardment, then invasion), which frees the queue, and FUN_0044d830 would then read through
+    # a null queue pointer (0x44d84b) on every machine (review finding N8, static).
     d_rearm_n = data + 0xd8
     d_rearm = data + 0xdc                  # MAX_REARM * (word system, word kind)
     MAX_REARM = 16
@@ -537,7 +541,7 @@ def apply(p):
         imul esi, ecx, 0x328
         add esi, dword ptr [0x5a36c8]
         cmp word ptr [edi*4 + {d_rearm + 2:#x}], 0
-        jne auto
+        jne kind1
         mov al, byte ptr [esi+0x4c]
         cmp al, byte ptr [0x5a2b2a]
         jne skip
@@ -545,6 +549,15 @@ def apply(p):
         call 0x44dc70
         test eax, eax
         je head
+        jmp auto
+    kind1:
+        cmp dword ptr [esi+0xa8], 0
+        je skip
+        movzx eax, byte ptr [esi+0x4c]
+        cmp eax, 5
+        jae skip
+        bt dword ptr [0x5a2b28], eax
+        jnc skip
     auto:
         mov eax, ecx
         call 0x4616f0

@@ -115,3 +115,18 @@ fix. Commands are in `tools/`.
   put 3163 industry into the ship. Fix HA decides from the order list on every machine (kill pattern "ship, any
   class" for human players' systems in multiplayer): in sync for three turns, and the owner's checksums are the same
   as without the fix. The earlier arm-B test (`tools/r2test.sh`) stays in sync with Fix HA.
+- **N3 (second END TURN): refuted.** Three more clicks on TURN while the player waits do not reach
+  `FUN_00458120` again (breakpoint trace: one call for four clicks; the END TURN lock disables the button). The
+  turn timer cannot end the turn a second time either: once the player ended the turn `FUN_004b9ae0` sets
+  `[0x59306c]`, and on expiry the timer callback skips the END TURN call when that flag is set (0x4b9ee5).
+- **N4 (inactive window while waiting): refuted with the fix build.** `tools/n4test.py`: B ends the turn and goes
+  inactive (`[0x5a28d4] = 0`), the others end the turn. They start the processing (busy 1) but do not finish it
+  while B stays in the pump, so nobody can send next-turn queues or orders to B. When B becomes active again all
+  five finish the turn in sync.
+- **R3/R4 (Fix B replay order and capacity): not reachable in practice.** Each player sends exactly one 0x74 and
+  one 0x68 message per turn (one buffer each, `FUN_0044d580`, `FUN_00456340`), so at most eight game messages can
+  be parked during one processing; the capacity is 23. A 0x68 replayed before the same sender's 0x74 still finds
+  the 0x74 dispatched in the two pumps of `FUN_00458170` before busy is set. Not changed.
+- **N8 (Fix H restart without revalidation): fixed (static).** The deferred restart of the second kind (empty
+  queue) now checks that the system still belongs to a human player and still has a queue. Tested: the arm-A test
+  and an empty-queue scrap at Cardassia (the restart runs from Fix H's list on every machine) stay in sync.
