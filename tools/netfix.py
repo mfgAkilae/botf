@@ -73,9 +73,11 @@ KEEPALIVE_MS = 10000
 MAX_DEFER = 24
 SEND_TRIES = 250           # x 20 ms
 
-# Code goes into an unused, zero-filled area of the code section (0x516e5c..0x517e00, zero in all
-# 134 trek.exe builds shipped with the 2.0.4 installer); mutable data into the unused tail of
-# .bss (last variable referenced anywhere is 0x6896d4, the section ends at 0x689800).
+# Code goes into a zero-filled area of the code section (0x516e60..0x517e00, zero in all 134 trek.exe builds
+# shipped with the 2.0.4 installer). It is not unused: it is the zero initialiser that the movie playback thread
+# copies into a 4000-byte local structure (0x517f78, see Fix MV below), which now zero-fills that structure itself.
+# Mutable data goes into the unused tail of .bss (last variable referenced anywhere is 0x6896d4, the section ends at
+# 0x689800).
 CODE_CAVE, CODE_CAVE_END = 0x516e60, 0x517e00
 DATA_CAVE, DATA_CAVE_END = 0x6896e0, 0x689800
 # More mutable data (the .bss tail is full): the end of DGROUP. Its file data ends at 0x5a1600 (last non-zero byte
@@ -93,6 +95,13 @@ def apply(p):
     assert d_arr + MAX_DEFER * 8 <= DATA_CAVE_END
     if any(p.read(CODE_CAVE, CODE_CAVE_END - CODE_CAVE)):
         raise ValueError('code cave 0x516e60 is not free in this trek.exe')
+    # ---- Fix MV: the movie playback thread no longer reads the code cave ----------------------------------------
+    # FUN_00517f60 (movie playback thread) initialises a 4000-byte local structure by copying 0x3e8 dwords from the
+    # zero-filled block 0x516e60 (0x517f71..0x517f7d: mov ecx,0x3e8 / mov edi,esp / mov esi,0x516e60 / rep movsd).
+    # That block is exactly the code cave above, so with the fix code in it the structure started with code bytes
+    # instead of zeros. Found by a reviewer of the patch (Discord, 2026-10-17). The structure is now zero-filled
+    # directly (rep stosd with eax = 0), the same result as the stock game; eax is overwritten before its next use.
+    p.patch(0x517f71, 'b9e803000089e7be606e5100f3a5', 'b9e803000089e731c0f3ab909090')
     code = CODE_CAVE
     out = {}
 
