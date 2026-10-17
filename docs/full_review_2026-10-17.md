@@ -163,3 +163,9 @@ fix. Commands are in `tools/`.
   fix only B researches with 40/12/12/12/12/12, the others keep 17/17/17/17/16/16 (the research record is not in a
   heartbeat checksum). With Fix RS the commit is skipped while the turn is not idle and all five keep the old
   values; a commit while idle (leaving with F1) still reaches every game.
+- **S4 (task-force reorganisation after a timed END TURN): reproduced, fixed (Fix RD).** `tools/s4redeploy.py`
+  in a game with a one-minute timer: B opens the REDEPLOY dialog of a task force at Qo'nos, the timer ends B's
+  turn, the dialog stays usable and B drags the destroyer into the task force. Without the fix the ship's
+  task-force id changes on B only and the heartbeat checksum differs at the end of the turn. With Fix RD (the
+  dialog's three state-changing callbacks do nothing in multiplayer while the turn is not idle) the drag is only
+  drawn, nothing changes, all five stay in sync; a drag while idle is still turned into orders at END TURN.

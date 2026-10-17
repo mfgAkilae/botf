@@ -1310,5 +1310,31 @@ def apply(p):
     # 0x4d292a: call FUN_004d2780 (after the panel was hidden)
     p.patch(0x4d292a, call_rel(0x4d292a, 0x4d2780), call_rel(0x4d292a, rescommit))
 
+    # ---- Fix RD: no task-force reorganisation after the turn ended ----------------------------------------------
+    # The REDEPLOY dialog (0x4ffde0) changes the real task forces at once: FUN_004feea0 (new task force for a ship),
+    # FUN_004fef90 (ship leaves its task force) and FUN_004ff0a0 (ship joins one) write the ship's task-force id
+    # (+0x50, part of the ship checksum) and create or remove task forces. END TURN turns the changes made so far into
+    # orders (FUN_004667d0 at 0x45812c); a change made after that exists on this machine only. The dialog is a child
+    # window that the END TURN lock does not disable, so with a turn timer it can stay usable after the timer ended
+    # the turn. Found by static code reviews (review finding S4, static; the dialog's three callbacks are only called
+    # from its handlers 0x4fe020 and 0x4fe500). In multiplayer they now do nothing while the turn is not idle.
+    def turn_guard(name, entry, head, cont):
+        cave = put(name, f'''
+            cmp dword ptr [0x5a2924], 0
+            je go
+            cmp dword ptr [0x5a291c], 0
+            jne skip
+        go:
+            {head}
+            jmp {cont:#x}
+        skip:
+            ret
+        ''')
+        n = cont - entry
+        p.patch(entry, p.read(entry, n).hex(), jmp_rel(entry, cave) + b'\x90' * (n - 5))
+    turn_guard('rdnew', 0x4feea0, 'push ebx\n push ecx\n push esi\n push edi\n push ebp', 0x4feea5)
+    turn_guard('rdleave', 0x4fef90, 'push ebx\n push ecx\n push edx\n push esi\n push edi', 0x4fef95)
+    turn_guard('rdjoin', 0x4ff0a0, 'push ecx\n push edi\n mov edi, edx\n movsx ecx, dx', 0x4ff0a7)
+
     out["code_end"] = code
     return out
