@@ -987,6 +987,13 @@ def apply(p):
     ''')
     # 0x520e2e: call FUN_00492f10 (eax = size)
     p.patch(0x520e2e, call_rel(0x520e2e, 0x492f10), call_rel(0x520e2e, unitzero))
+    # The tactical task-force array [0x597860] (count x 0x74, allocated right after) has the same problem: its
+    # initialisation writes +0x00..+0x20 and +0x3c..+0x54 only, but the retreat behaviour of order 10
+    # (FUN_0056c1f8, ai\retreat.c, 0x56c2cb..0x56c358) reads the three doubles at +0x24..+0x3b as an aim point, so
+    # a retreating unit steered by heap leftovers that differ between computers (battle checksum assert). Found by
+    # a static code review (Claude Sonnet). The array is cleared the same way.
+    # 0x520ef3: call FUN_00492f10 (eax = count * 0x74)
+    p.patch(0x520ef3, call_rel(0x520ef3, 0x492f10), call_rel(0x520ef3, unitzero))
 
     # ---- Fix CA: conquering the last system of an empire when it is its original capital ------------------
     # After an invasion (FUN_00466cf0) the loser's home-system entry [0x5b2360 + emp*2] is set to the first
@@ -1104,6 +1111,23 @@ def apply(p):
     ''')
     # 0x4bcb90: push ecx / push edx / push ebx / mov eax,[0x5932b4] (8 bytes)
     p.patch(0x4bcb90, '515253a1b4325900', jmp_rel(0x4bcb90, intelcommit) + b'\x90' * 3)
+
+    # ---- Fix F6: the F6 key no longer spawns a monster on one machine only ------------------------------------
+    # F6 is a leftover debug key: the keyboard handler FUN_00401910 sets bit 2 of [0x5a2b6c] (0x401ad7) whenever a
+    # game is running; unlike the F9-F11 cheats it checks neither the cheat flag nor multiplayer. With random events
+    # on, the next turn's event step FUN_0044cbe0 (0x44cbe4) then spawns a random monster (FUN_0044b220, several
+    # main random numbers) and resets the spawn countdown [0x58fdb0] - on the machine whose player pressed F6 only:
+    # one key press -> "synchronization error" at the next turn (reproduced: seed and checksums differ, countdown
+    # 40 vs 54). Found by static code reviews (Claude Sonnet and Fable). In multiplayer the key is now ignored.
+    f6 = put('f6', '''
+        cmp dword ptr [0x5a2924], 0
+        jne skip
+        or byte ptr [0x5a2b6c], 4
+    skip:
+        jmp 0x401976
+    ''')
+    # 0x401ad7: or byte ptr [0x5a2b6c],4 (7 bytes), followed by jmp 0x401976
+    p.patch(0x401ad7, '800d6c2b5a0004', jmp_rel(0x401ad7, f6) + b'\x90' * 2)
 
     out["code_end"] = code
     return out
