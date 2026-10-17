@@ -14,6 +14,6 @@ if [ "$5" = manual ]; then
 fi
 nohup python -I -u tools/observer.py $N $D > $D/observer_stdout.txt 2>&1 &
 sleep 6
-for x in A B C D E; do nohup python -I -u tools/player.py $x $SEED $D $PLAYER_FLAGS > $D/player_${x}_stdout.txt 2>&1 & sleep 1; done
+for x in ${HUMANS:-A B C D E}; do nohup python -I -u tools/player.py $x $SEED $D $PLAYER_FLAGS > $D/player_${x}_stdout.txt 2>&1 & sleep 1; done
 [ "$5" = manual ] && nohup python -I -u tools/tactical.py 86400 $D $SEED > $D/tactical_stdout.txt 2>&1 &
 echo started $D

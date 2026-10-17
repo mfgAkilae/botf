@@ -559,7 +559,7 @@ def main():
             if time.time() - t0 > 6:
                 handle_dialogs(dlg, INST, PID, log)
             if busy() == 1 and time.time() - t0 > 15 and in_blame_dialog():
-                act('blame: first choice'); H.click(H.main_window(PID), 290, 373, pid=PID); acts.append('(processing)blame')
+                act('blame: first choice'); H.click(H.main_window(PID), 300, 369, pid=PID)   # inside the first button of every race skin (Romulan 240..335 x 362..383, Federation 262..350 x 355..378); acts.append('(processing)blame')
             nap(rnd.uniform(0.5, 2.0))
         log('turn %d -> %d (%.0fs): %s' % (t, turn(), time.time() - t0, ' '.join(acts)))
         last = t

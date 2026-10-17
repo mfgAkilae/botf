@@ -1,5 +1,5 @@
 #!/bin/bash
-# usage: newgame5.sh <exe>   — installs exe into test/A..E and starts a 5-human MP game:
+# usage: newgame5.sh <exe>   — installs exe into test/A..E and starts a 5-human MP game (env HUMANS="A B C D": fewer humans, the computer plays the rest):
 # A host Cardassians, B Klingons, C Federation, D Ferengi, E Romulans; large ring galaxy, normal difficulty.
 # NEWGAME_CFG="x,y ...": extra clicks on the host's configuration screen (galaxy size 545,476; shape 545,316).
 # Every test/<X>/dxwnd.dxw must point to its own folder, otherwise the game starts fullscreen.
@@ -11,14 +11,15 @@ H="python -I tools/harness.py"
 EXE=${1:-trek_t_bug.exe}
 for x in A B C D E; do $H kill $x >/dev/null 2>&1 || true; done
 sleep 1
-for x in A B C D E; do
+HUMANS=${HUMANS:-A B C D E}             # e.g. HUMANS="A B C D": E's empire is played by the computer
+for x in $HUMANS; do
   grep -qi "\\\\$x\\\\trek.exe" $TEST/$x/dxwnd.dxw || { echo "dxwnd.dxw of $x points elsewhere"; exit 1; }
   ov=EXE_$x; cp "${!ov:-$EXE}" $TEST/$x/trek.exe; : > $TEST/$x/Crash.log     # EXE_C=other.exe: per-instance build
 done
 rm -f "$TEST"/?/dxwnd.lockfile.tmp      # stale after a crash: dxwnd does not hook, the game goes fullscreen
 tasklist | grep -qi dplaysvr || powershell -NoProfile -Command "Start-Process -FilePath '$(cygpath -w "$DPLAY/dplaysvr.exe")' -WorkingDirectory '$(cygpath -w "$DPLAY")' -WindowStyle Hidden"
 sleep 1
-for x in A B C D E; do
+for x in $HUMANS; do
   $H launch $x "$(cygpath -w "$TEST/$x")"; sleep 6
   if ! $H wins $x | grep -q "True, 800, 600)"; then
     echo "instance $x is not windowed 800x600, aborting"
@@ -49,16 +50,18 @@ join() {
   $H click $x 545 520; sleep 6
   $H click $x 230 $ry; sleep 2
 }
-join B Beta 374; join C Gamma 238; join D Delta 304; join E Epsilon 443
+for j in "B Beta 374" "C Gamma 238" "D Delta 304" "E Epsilon 443"; do
+  case " $HUMANS " in *" ${j%% *} "*) join $j;; esac
+done
 $H click A 230 166; sleep 2
 $H click A 545 520; sleep 60
 python -I - <<'EOF'
 import sys, struct; sys.path.insert(0, 'tools')
 import harness as H
 st = H.load_state()
-for k in 'ABCDE':
+for k in [k for k in 'ABCDE' if H.pid_alive(st[k])]:
     p = st[k]
     print(k, 'alive', H.pid_alive(p), 'turn', struct.unpack('<I', H.readmem(p, 0x5a2918, 4))[0],
           'local', H.readmem(p, 0x5a2b2a, 1)[0], 'mask', hex(H.readmem(p, 0x5a2b28, 1)[0]))
 EOF
-for x in A B C D E; do $H place $x; done   # dxwnd may move the windows after the mode switch
+for x in $HUMANS; do $H place $x; done   # dxwnd may move the windows after the mode switch
