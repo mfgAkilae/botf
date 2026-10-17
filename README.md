@@ -193,7 +193,7 @@ The whole patch is the Python script `tools/netfix.py`: every fix is written the
 
 - `release/botf_mpfix.py` is a plain Python 3 script without dependencies. It holds every changed byte range as a
   pair (original bytes, new bytes) and refuses to patch a file whose original bytes differ. You can read it and run
-  it instead of the exe: `python release/botf_mpfix.py "C:\Games\BotF	rek.exe"`.
+  it instead of the exe: `python release/botf_mpfix.py "C:\Games\BotF\trek.exe"`.
 - `release/BotF_MP_fix.patch` holds the same byte ranges in the community patcher format (`>>` original, `<<` new).
 - `BotF_MP_fix.exe` (release download) is `release/botf_mpfix.py` packed with PyInstaller:
   `python -m PyInstaller --onefile --console --name BotF_MP_fix release/botf_mpfix.py`.
