@@ -186,6 +186,26 @@ sends its own state to everybody). A save made after the problem does not show t
   `sysdiag.py`).
 - `docs/static_audit.md` – multi-agent static audit of the binary with adversarial verification.
 
+## Build and check the patch yourself
+
+The whole patch is the Python script `tools/netfix.py`: every fix is written there as assembly with a comment, and
+`tools/pe.py` applies it with Keystone. The release files are generated from it:
+
+- `release/botf_mpfix.py` is a plain Python 3 script without dependencies. It holds every changed byte range as a
+  pair (original bytes, new bytes) and refuses to patch a file whose original bytes differ. You can read it and run
+  it instead of the exe: `python release/botf_mpfix.py "C:\Games\BotF	rek.exe"`.
+- `release/BotF_MP_fix.patch` holds the same byte ranges in the community patcher format (`>>` original, `<<` new).
+- `BotF_MP_fix.exe` (release download) is `release/botf_mpfix.py` packed with PyInstaller:
+  `python -m PyInstaller --onefile --console --name BotF_MP_fix release/botf_mpfix.py`.
+- `python tools/make_release.py` regenerates `botf_mpfix.py`, the `.patch` file and patched copies of the eight
+  vanilla `trek.exe` variants from `tools/netfix.py`. It needs `pip install keystone-engine` and the unpacked
+  vanilla executables `trek,1.exe` .. `trek,8.exe` in `BOTF_VANILLA`; the output goes to `BOTF_RELEASE`. Compare the
+  result with the release files to check that they come from this source.
+
+The new code goes into a block of the code section that is zero in every variant (0x516e60..0x517e00). That block
+is the zero initialiser the movie playback thread copies into a local structure; Fix MV makes the thread fill the
+structure with zeros itself, so the block is free for the patch.
+
 ## Reproduce the results yourself
 
 Everything runs on one Windows PC with **Git Bash** and **Python 3** (`pip install keystone-engine capstone pillow`).
