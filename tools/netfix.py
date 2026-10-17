@@ -1289,5 +1289,26 @@ def apply(p):
     p.patch(0x46799f, '31c0', 'eb07')        # jmp 0x4679a8 (after the write)
     p.patch(0x467fde, '31c0', 'eb07')        # jmp 0x467fe7
 
+    # ---- Fix RS: research allocations are not committed while the turn is out of the player's hands -----------
+    # Leaving the research screen (close handler 0x4d2910) commits the allocation sliders: FUN_004d2780 changes a
+    # pending research order in place or adds one, and writes the empire's research record at once (0x4d281b). With
+    # a turn timer the turn can end while the screen is open; the order list is already sent then, so the change
+    # stays on the player's machine (reproduced with tools/r1timer.py in a game with a one-minute timer: B leaves
+    # the screen after the timer ended its turn -> B researches with 40/12/12/12/12/12, the others with the old
+    # 17/17/17/17/16/16). Found by static code reviews (review finding R1). Same rule as Fix IN: in multiplayer the
+    # commit is skipped while the turn state [0x5a291c] is not idle (the change is dropped on every machine alike).
+    rescommit = put('rescommit', '''
+        cmp dword ptr [0x5a2924], 0
+        je go
+        cmp dword ptr [0x5a291c], 0
+        jne skip
+    go:
+        jmp 0x4d2780
+    skip:
+        ret
+    ''')
+    # 0x4d292a: call FUN_004d2780 (after the panel was hidden)
+    p.patch(0x4d292a, call_rel(0x4d292a, 0x4d2780), call_rel(0x4d292a, rescommit))
+
     out["code_end"] = code
     return out

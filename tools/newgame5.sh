@@ -2,6 +2,7 @@
 # usage: newgame5.sh <exe>   — installs exe into test/A..E and starts a 5-human MP game (env HUMANS="A B C D": fewer humans, the computer plays the rest):
 # A host Cardassians, B Klingons, C Federation, D Ferengi, E Romulans; large ring galaxy, normal difficulty.
 # NEWGAME_CFG="x,y ...": extra clicks on the host's configuration screen (galaxy size 545,476; shape 545,316).
+# NEWGAME_TIMER=<minutes>: strategic turn timer.
 # Every test/<X>/dxwnd.dxw must point to its own folder, otherwise the game starts fullscreen.
 set -e
 cd "$(dirname "$0")/.." || exit 1                 # repository root
@@ -36,6 +37,9 @@ $H click A 250 215; sleep 3
 $H click A 405 270; sleep 1
 $H click A 515 505; sleep 6
 for xy in ${NEWGAME_CFG:-}; do $H click A ${xy%,*} ${xy#*,}; sleep 1; done   # e.g. "545,476 545,316": small spiral galaxy
+if [ -n "${NEWGAME_TIMER:-}" ]; then   # strategic turn timer in minutes ([0x5b1a48], copied to [0x5a2b7c] on ACCEPT; the arrows ignore posted clicks)
+  python -I -c "import sys, struct; sys.path.insert(0, 'tools'); import harness as H; H.writemem(H.load_state()['A'], 0x5b1a48, struct.pack('<i', $NEWGAME_TIMER))"
+fi
 $H click A 545 520; sleep 4
 join() {
   x=$1; nm=$2; ry=$3

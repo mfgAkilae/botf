@@ -156,3 +156,10 @@ fix. Commands are in `tools/`.
   need very rare states (a build costing more than 65,535 industry with exactly 65,535 invested; no free sector on
   the whole map), and a fix would need more than a local patch (owner-form +0x90 at build start; abort path with
   cleanup in `FUN_0044b220`). R13 behaves the same on every machine.
+- **R1 (research commit after a timed END TURN): reproduced, fixed (Fix RS).** A game with a one-minute strategic
+  timer (`NEWGAME_TIMER=1 tools/newgame5.sh`; the timer arrows ignore posted clicks, so the script sets the
+  stored setting). `tools/r1timer.py`: B opens the research screen, the timer ends B's turn, B changes the
+  allocations; the screen is closed (by the player or by the game when processing starts) and commits. Without the
+  fix only B researches with 40/12/12/12/12/12, the others keep 17/17/17/17/16/16 (the research record is not in a
+  heartbeat checksum). With Fix RS the commit is skipped while the turn is not idle and all five keep the old
+  values; a commit while idle (leaving with F1) still reaches every game.
