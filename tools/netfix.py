@@ -1129,5 +1129,57 @@ def apply(p):
     # 0x401ad7: or byte ptr [0x5a2b6c],4 (7 bytes), followed by jmp 0x401976
     p.patch(0x401ad7, '800d6c2b5a0004', jmp_rel(0x401ad7, f6) + b'\x90' * 2)
 
+    # ---- Fix HA: shipyard loss kills the system's ship order on every machine (Fix H, arm A) -------------------
+    # When a system loses its shipyard during turn processing (scrap order, bombardment, unrest), FUN_00445a10
+    # decides at 0x445a28 from the current-production record (+0x80 == 3: building a ship) whether to kill the
+    # system's production order. For a human player's system that record is kept in owner form: after the turn
+    # processing advanced the queue to a ship (owner only, FUN_0046138c) or after a ship was picked in the build
+    # screen, the owner has 3 and every other machine 0 until the order runs. In that turn only the owner kills the
+    # ship order; the others keep it and put the system's industry into the ship although the shipyard is gone ->
+    # "synchronization error" at the end of the same turn. Reproduced with trek_t_fix18 from saves/five_1201_t103
+    # (tools/n7test.sh: buy the Heavy Cruiser at Cardassia with a second one queued, scrap the Union Shipyard in the
+    # next turn): heartbeat mismatch at turn 105, B..E invest 3163 into the ship, A builds the next structure.
+    # Found by static code reviews (Claude Sonnet, review finding N7). In multiplayer every machine now kills the
+    # ship orders of a human player's system there, decided from the order list (equal everywhere) instead of the
+    # record: the kill pattern becomes "ship, any class" (FUN_00463820 with class -1) instead of "any production
+    # order", so a structure being built is not touched. Computer empires' systems and single player keep the
+    # original test. The record test at 0x445a78 (clear the record, owner restarts the queue: Fix H) is unchanged.
+    hahuman = put('hahuman', '''
+        cmp dword ptr [0x5a2924], 0
+        je no
+        push eax
+        movzx eax, byte ptr [esi+0x4c]
+        cmp eax, 5
+        jae no_pop
+        bt dword ptr [0x5a2b28], eax
+        pop eax
+        ret
+    no_pop:
+        pop eax
+    no:
+        clc
+        ret
+    ''')
+    hagate = put('hagate', f'''
+        call {hahuman:#x}
+        jc 0x445a3d
+        cmp dword ptr [esi+0x80], 3
+        je 0x445a3d
+        jmp 0x445a31
+    ''')
+    hapattern = put('hapattern', f'''
+        call {hahuman:#x}
+        jnc 0x4638d0
+        push ebx
+        or ebx, -1
+        call 0x463820
+        pop ebx
+        ret
+    ''')
+    # 0x445a28: cmp dword ptr [esi+0x80],3 / je 0x445a3d (9 bytes)
+    p.patch(0x445a28, '83be8000000003740c', jmp_rel(0x445a28, hagate) + b'\x90' * 4)
+    # 0x445a4d: call FUN_004638d0 (eax = order pattern, edx = system)
+    p.patch(0x445a4d, call_rel(0x445a4d, 0x4638d0), call_rel(0x445a4d, hapattern))
+
     out["code_end"] = code
     return out

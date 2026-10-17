@@ -2,7 +2,7 @@
 Each agent plays its own empire like a person: browses screens, moves fleets, changes labor and
 production, sometimes buys, presses TURN when done and keeps clicking around while it waits for the
 other player and while the turn is processed. tools/observer.py traces and compares both games.
-usage: player.py <A..E> <seed> <logdir> [--heavy] [--home X,Y]
+usage: player.py <A..E> <seed> <logdir> [--heavy] [--assault] [--waitact] [--home X,Y]
   --heavy   this player checks the galaxy-map tabs several times per turn
 Stops when <logdir>/stop exists; makes no input while <logdir>/pause exists."""
 import os, random, struct, sys, time
@@ -14,6 +14,7 @@ from autoturn import (u32, i32, TURN_ADDR, BUSY_ADDR, TURN_BTN, ACTIVE_ADDR, Dia
 INST, seed, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 HEAVY = '--heavy' in sys.argv
 ASSAULT = '--assault' in sys.argv            # war in earnest: invasion missions for fleets at foreign systems
+WAITACT = '--waitact' in sys.argv            # also give fleet orders (mouse only) while waiting for the others
 os.makedirs(out, exist_ok=True)
 rnd = random.Random(seed * 10 + ord(INST))
 PID = H.load_state()[INST]
@@ -332,6 +333,28 @@ def in_blame_dialog():
     return any(struct.unpack_from('<I', stk, o)[0] == 0x47dc7f for o in range(0, len(stk) - 3, 4))
 
 
+def own_state():
+    # own orders (without the local type-9 requests) and own system records: neither may change after END TURN
+    import collections, ordercmp
+    emp = H.readmem(PID, 0x5a2b2a, 1)[0]
+    orders = collections.Counter(o[:4] for o in ordercmp.orders(PID) if o[1] == emp and o[0] != 9)
+    sp, n = u32(PID, 0x5a36c8), struct.unpack('<H', H.readmem(PID, 0x5a36bc, 2))[0]
+    rec = H.readmem(PID, sp, n * 0x328) if sp and n else b''
+    systems = {i: rec[i * 0x328:(i + 1) * 0x328] for i in range(n) if rec[i * 0x328 + 0x4c] == emp}
+    return orders, systems
+
+
+def n2_diff(a, b):
+    added, removed = b[0] - a[0], a[0] - b[0]
+    rep = ['+order type %d' % k[0] for k in added.elements()] + ['-order type %d' % k[0] for k in removed.elements()]
+    for i in sorted(set(a[1]) | set(b[1])):
+        x, y = a[1].get(i, b''), b[1].get(i, b'')
+        if x != y:
+            offs = [o for o in range(min(len(x), len(y))) if x[o] != y[o]]
+            rep.append('system %d %s' % (i, ','.join('%x' % o for o in offs[:12]) if x and y else 'owner'))
+    return ' '.join(rep)
+
+
 def turn(): return u32(PID, TURN_ADDR)
 def busy(): return i32(PID, BUSY_ADDR)
 
@@ -537,7 +560,10 @@ def main():
         for f in steps:
             if stopped():
                 return
+            before = own_state() if WAITACT else None
             acts += f()
+            if WAITACT and busy() == 0 and own_state() != before:
+                acts.append('[%s changed own state]' % f.__name__)   # positive control for the N2 probe
             nap(rnd.uniform(0.3, 2.0))
         if not press(t):
             log('turn %d: TURN press failed' % t); screen(INST, PID, os.path.join('..', out, 'pressfail_%s_t%d' % (INST, t)))
@@ -552,7 +578,17 @@ def main():
                 if not press(t):
                     break
                 acts.append('TURN(again)'); idle_same = 0
-            if busy() == -1 and rnd.random() < (0.5 if HEAVY else 0.2):
+            if busy() == -1 and WAITACT and rnd.random() < 0.5:
+                # review finding N2: are the order-changing screens still live after END TURN?
+                f = rnd.choice([fleets, fleets, production, diplomacy] if 'dip' in L else [fleets, fleets, production])
+                before = own_state()
+                done = f()
+                if busy() == -1:
+                    after = own_state()
+                    if after != before:
+                        log('turn %d: N2 %s changed own state while waiting: %s' % (t, f.__name__, n2_diff(before, after)))
+                acts += ['(waiting)' + a for a in done]
+            elif busy() == -1 and rnd.random() < (0.5 if HEAVY else 0.2):
                 acts += ['(waiting)' + a for a in browse(rnd.randint(1, 3))]
             elif busy() == 1 and waits < 2 and rnd.random() < 0.3:
                 acts += ['(processing)' + a for a in browse(rnd.randint(1, 2))]; waits += 1

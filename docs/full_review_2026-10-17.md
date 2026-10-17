@@ -9,7 +9,8 @@ diplomacy/intelligence/events, computer empires/per-process state/UI). Four roun
 3. Claude Sonnet, effort xhigh, given rounds 1 and 2;
 4. Claude Fable, effort xhigh, given rounds 1 and 2 (rounds 3 and 4 ran in parallel and did not see each other).
 
-Material: Ghidra pseudocode, disassembly, `tools/netfix.py`. Nothing below is runtime-confirmed yet.
+Material: Ghidra pseudocode, disassembly, `tools/netfix.py`. Sections 1 to 3 are static; section 4 lists the
+runtime checks done since.
 Ratings: **code** = the chain is confirmed in the code; **plausible** = one step needs a runtime check;
 **spec.** = speculative. In the round columns: ✓ confirmed, ✗ refuted, ? unsure, + new aspect, – not in that
 agent's area or not examined.
@@ -88,3 +89,29 @@ the gaps they needed in raw disassembly. A complete export of these ranges is a 
 Each fix needs an A/B runtime test like the earlier ones before a release. The 32 agent reports
 (`astra_area*.md`, `sol_area*.md`, `sonnet_area*.md`, `fable_area*.md`) are kept with the test-bed logs
 (`turnlog/fullreview_2026-10-17/` in the working directory), not in the repository.
+
+## 4. Runtime results
+
+All tests with five human players in the test bed (one machine, five instances), A/B against the build without the
+fix. Commands are in `tools/`.
+
+- **N1 (F6 debug key): reproduced, fixed (Fix F6).** In an AI war at turn 178 an agent's F6 desynced the game
+  (countdown 40 vs 54). A/B from a turn-520 checkpoint (`tools/f6test.sh`): heartbeat mismatch at turn 521 without
+  the fix (countdown 39 on the presser), in sync with it (countdown 73 everywhere).
+- **N6 (tactical task-force array): fixed without a reproduction** (Fix F now also zeroes the array at 0x520ef3).
+  A reproduction needs a battle with two or more human players and an order-10 retreat.
+- **N2 (order screens after END TURN): refuted for the reachable screens.** The player agents (`tools/player.py
+  --waitact`) kept giving orders while they waited for the others, from turn 520 of a war game: 53 fleet courses,
+  26 fleet missions, 59 labor changes, about 120 build-list picks, buys and diplomacy proposals. A probe compared
+  the player's own orders (without the local kill requests) and own system records before and after every action:
+  no change while waiting. The same probe before END TURN saw the fleet, production and diplomacy changes (positive
+  control). On the galaxy map the military view shows no task forces while the player waits. The END TURN lock
+  therefore blocks these screens. Still open: the turn timer (END TURN forced while a screen is open, R1 and S4),
+  the task-force reorganisation dialog and the research screen.
+- **N7 (shipyard loss, arm A): reproduced, fixed (Fix HA).** `tools/n7test.sh`: at Cardassia a second Heavy
+  Cruiser is queued and the current one bought; after the turn only the owner records the next ship (+0x80: owner 3,
+  the others 0, shown by `tools/cur80.py`). The owner then scraps the Union Shipyard. Without the fix the heartbeat
+  differs at the end of that turn: the owner killed the ship order and builds the next structure, the other four
+  put 3163 industry into the ship. Fix HA decides from the order list on every machine (kill pattern "ship, any
+  class" for human players' systems in multiplayer): in sync for three turns, and the owner's checksums are the same
+  as without the fix. The earlier arm-B test (`tools/r2test.sh`) stays in sync with Fix HA.
