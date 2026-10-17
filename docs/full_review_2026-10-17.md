@@ -2,49 +2,89 @@
 
 Static review of the multiplayer code of trek.exe 2.0.4 EN with all fixes of v1.7.0 applied, split into eight
 areas (network and session, turn cycle and checksums, orders, economy, strategic military, tactical battles,
-diplomacy/intelligence/events, computer empires/per-process state/UI). Two independent rounds:
+diplomacy/intelligence/events, computer empires/per-process state/UI). Four rounds, one agent per area each:
 
 1. Codex gpt-6-astra, effort xhigh (four areas restarted after the provider's content filter stopped them);
-2. Codex gpt-6.1-sol, effort xhigh, given round 1's findings to confirm or refute and asked for new ones.
+2. Codex gpt-6.1-sol, effort xhigh, given round 1's findings to confirm or refute and asked for new ones;
+3. Claude Sonnet, effort xhigh, given rounds 1 and 2;
+4. Claude Fable, effort xhigh, given rounds 1 and 2 (rounds 3 and 4 ran in parallel and did not see each other).
 
-Material: Ghidra pseudocode, disassembly, `tools/netfix.py`. Nothing below is runtime-confirmed yet. "code" =
-the chain is confirmed in the code; "plausible" = one step needs a runtime check.
+Material: Ghidra pseudocode, disassembly, `tools/netfix.py`. Nothing below is runtime-confirmed yet.
+Ratings: **code** = the chain is confirmed in the code; **plausible** = one step needs a runtime check;
+**spec.** = speculative. In the round columns: ✓ confirmed, ✗ refuted, ? unsure, + new aspect, – not in that
+agent's area or not examined.
 
-## Findings
+## 1. Findings of rounds 1 and 2, with the verdicts of rounds 3 and 4
 
-| Id | Area | Finding | Round 1 | Round 2 |
+| Id | Area | Finding | R1 | R2 | Sonnet | Fable |
+|---|---|---|---|---|---|---|
+| R1 | UI / orders | **Research (F4) after END TURN**: allocation edits pending when the order list is sent are committed later without a turn-state check (`FUN_004d2780`: order changed at 0x4d27f7 / added at 0x4d283e, allocations written at 0x4d281b); the merge takes the owner's changed list (0x455f12). Only the owner researches with the new allocations. Same pattern as Fix IN. | code | ✓ | ✓ (only the timer reaches it: END TURN is a galaxy-screen button) | ✓ (the timer qualifier is too narrow, see N2) |
+| R2 | intel | **Intel orders deleted on any elimination**: `FUN_0047fa90` (from 0x43b370 → `FUN_0047f6d0`) selects all intel orders (empire 0xff) and deletes the originals (0x47fba5); the owner already wrote the new allocations on commit (`FUN_0047f190`). Kind-0 priority and kind-2 blame orders are always lost. `EBX=1` instead of `ESI` at 0x47fb6e. | code | ✓ | ✓✓ (two agents) | ✓✓ |
+| R3 | Fix B | **Replay order**: parked notifications are reposted behind newer ones already in the window queue; a slow client can apply host options (0x85) A after B. | code | ✓ | ✓✓ | ✓✓ |
+| R4 | Fix B | **Park capacity**: with 23 parked notifications the next protected message runs while busy (0x85 → assert conninit.c:617). | code | ✓ | ✓✓ | ✓✓ |
+| S1 | Fix H | **Re-arm capacity** `MAX_REARM = 16`: when full both hooks fall back to the owner-only restart before the production snapshot. | – | code | ✓ (+ N8) | ✓✓ |
+| S3 | Fix U | **AUTO protection limited to 2,048 battle records** (ships plus projectile slots). | – | code | ✓ | ✓ |
+| R7 | Fix U | **AUTO second pass** (`FUN_00478370` at 0x477eb8) changes same-side order-10 ships without ownership check. | code | ✓ | ✓ | ✓ |
+| R5 | battles | **Battle barriers** `FUN_00473bb0` / `FUN_004742a0` require exact mask equality (0x473d5c, 0x474357); a leaver's acknowledged bit stays → endless wait. | code | ✓ | ✓✓✓ | ✓ (+ same exact-mask wait in `FUN_00470e50`, 0x470ed9) |
+| R6 | battles | **Battle result counter** `[0x59056c]`: receipt and departure both decrement → early completion or assert battle.c:416. | code | ✓ | ✓✓✓ | ✓ |
+| S4 | UI / fleets | **Task-force reorganisation dialog** stays usable after END TURN; callbacks change the ship's task-force id (+0x50, in the ship CRC) only locally. | – | code | ? (unclear whether the map lock covers the dialog) | ✓ (not limited to a timed END TURN, see N2) |
+| R8 | lobby | Unknown DPID maps to empire 5 in the filter (0x510694); with minor 5 eliminated join notifications are dropped. | code | ✓ | ✓ | ✓ (also 0x402 notifications) |
+| R9 | lobby | Lobby host change destroys the receive list and critical section while notifications are queued. | code | ✓ | ✓ | ✓ |
+| R10 | economy | Upgrade at exactly 65,535 accumulated industry consumes the owner-dependent +0x90. | code | ✓ | ✓ | ✓ |
+| S2 | economy | Empire morale average sums 16-bit → assert morale.c:102 (164 systems at morale 200). | – | code | ✓ | ✓ |
+| R11 | turn | `FUN_004562c0` starts the turn even when the 0x68 payload was discarded; the turn start pumps before busy=1 → nested turn start. | plausible | ? | ✓ + natural triggers (N3, N5); ?? (two agents unsure) | ✓ + natural triggers (N4, N5, N14) |
+| R12 | UI | LOAD from the Escape menu inside the turn tears down state below the active turn frame. | plausible | ? | ? | ? (in-game LOAD closes the session → "Disconnected"; only the pre-busy pump is exposed) |
+| R13 | military | Monster spawn loops forever on a full map (0x44b2b0); colonize event reads a removed task force's id (0x469d19). Same on every machine. | code | ✓ | ✓✓ | ✓ |
+| S5 | load | Periodic computer credit bonuses (difficulty 4/5) not re-registered after a load (symmetric). | – | code | ? (no scheduled bonus found) | ? (symmetric, no desync) |
+| S6 | lobby | Unconsumed records (0x80 and others); hot-join cases (join after start is disabled). | – | code / plausible | ✓ (harmless leak) | ✓ (harmless leak) |
+
+No earlier finding was refuted.
+
+## 2. New findings of rounds 3 and 4
+
+| Id | Area | Finding | Rating | Found by |
 |---|---|---|---|---|
-| R1 | UI / orders | **Research (F4) after a timed END TURN**: allocation edits pending when the turn timer expires are not committed before the order list is sent (`FUN_00458120` at 0x4b9f74 → `FUN_00456340`); leaving the screen later commits them without a turn-state check (`FUN_004d2780`: order changed at 0x4d27f7 / added at 0x4d283e, allocations written at 0x4d281b), and the merge takes the owner's changed list (0x455f12). Only the owner researches with the new allocations. Same pattern as Fix IN. Needs a turn time limit. | code | confirmed |
-| R2 | intel | **Intel orders deleted on any elimination**: `FUN_0047fa90` (from 0x43b370 → `FUN_0047f6d0`) selects all intel orders (empire 0xff) and deletes the originals (0x47fba5). The owner already wrote the new allocations on commit (`FUN_0047f190`), the others keep the old ones. Also `EBX=1` instead of `ESI` at 0x47fb6e. | code | confirmed |
-| R3 | Fix B | **Replay order**: parked notifications are reposted behind newer ones already in the window queue; a slow client can apply host options (0x85) A after B (`FUN_0050d390` writes combat mode 0x50d3ea and random events 0x50d3f8). | code | confirmed |
-| R4 | Fix B | **Park capacity**: when 23 notifications are parked, the next protected message is dispatched while busy (`cmp d_count, MAX_DEFER-1; jae go`); 0x85 then hits the assert conninit.c:617 (0x50d3b5). | code | confirmed |
-| S1 | Fix H | **Re-arm capacity**: `MAX_REARM = 16`; when full both hooks fall back to the original owner-only restart before the production snapshot (0x445ab5 → 0x445abc), i.e. the bug Fix H fixes (e.g. 17+ shipyards scrapped in one turn). | — | code |
-| S3 | Fix U | **AUTO protection limited to 2,048 battle records** (ships plus projectile slots, count without clamp at 0x520e19); allied computer ships beyond index 2047 get orders locally (large battles, ~100 heavily armed ships). | — | code |
-| R7 | Fix U | **AUTO second pass** (0x477bf6..0x477c26, `FUN_00478370` at 0x477eb8) changes same-side ships with order 10 without an ownership check (allied human units). | code | confirmed |
-| R5 | battles | **Battle barriers** `FUN_00473bb0` / `FUN_004742a0` require exact mask equality (0x473d5c, 0x474357); a player who leaves after acknowledging keeps his bit → endless wait on some machines. | code | confirmed |
-| R6 | battles | **Battle result counter** `[0x59056c]`: result receipt (0x4750df/0x4750f3) and departure (`FUN_0046fd60`) both decrement without tracking the player → early completion or assert battle.c:416. | code | confirmed |
-| S4 | UI / fleets | **Task-force reorganisation dialog** stays usable after a timed END TURN; its callbacks (0x4fe020, 0x4fe500) change the ship's task-force id (+0x50, part of the ship CRC) only locally. Needs a turn time limit. | — | code |
-| R8 | lobby | Unknown DPID maps to empire 5 in the filter (0x510694); with minor 5 eliminated join notifications are dropped → resume of such a save stalls in the lobby. | code | confirmed |
-| R9 | lobby | Lobby host change destroys the receive list and its critical section (0x566d50..0x566d62) while notifications are still queued. | code (timing) | confirmed |
-| R10 | economy | Upgrade at exactly 65,535 accumulated industry consumes the owner-dependent field +0x90 (0x460574..0x4605b1) → completion one turn apart (rare). | code | confirmed |
-| S2 | economy | Empire morale average sums 16-bit (0x46118c, `MOVSX` 0x4611c2): 164 systems at morale 200 → assert morale.c:102 on every machine (extreme). | — | code |
-| R11 | turn | `FUN_004562c0` starts the turn even when the 0x68 payload was discarded; the turn start pumps before busy=1 → nested turn start possible; natural trigger not established. | plausible | unsure |
-| R12 | UI | LOAD from the Escape menu inside the turn tears down state below the active turn frame. | plausible | unsure |
-| R13 | military | Monster spawn loops forever on a fully occupied map (0x44b2b0); colonize event reads a removed task force's id (0x469d19). Same on every machine. | code | confirmed |
-| S5 | load | Periodic computer credit bonuses (difficulty 4/5) are not re-registered after a load (no desync: every machine loads). | — | code |
-| S6 | lobby | 0x80 leaks its receive record; hot-join with stale autosave; departed pending joiner blocks — join after start is normally disabled. | — | code / plausible |
+| N1 | UI / random events | **F6 is a leftover debug key**: `FUN_00401910` sets `[0x5a2b6c] |= 4` (0x401ad7) with only "game running" checked — no multiplayer, cheat-flag or turn-state test (F9–F11 have them). The random-event step `FUN_0044cbe0` (0x44cbe4) then spawns a random monster (`FUN_0044b220`, several main-RNG draws) and resets the countdown `[0x58fdb0]` on that machine only → seed mismatch at the next heartbeat. One accidental key press, random events on. | code | Sonnet ×2, Fable |
+| N2 | UI / orders | **Order-changing screens after END TURN**: production (`FUN_004f3330/3520/3840/3b90`), queue (`FUN_004fd7b8`), scrap (`FUN_004fab30`), labor (`FUN_004f1694` → `FUN_0043dd70`), fleet map (`FUN_004dd5a0`), diplomacy proposal/withdrawal (`FUN_004c8070`, `FUN_004c7f60`, `FUN_004c7ff0`), research (R1), reorganisation (S4): none tests `[0x5a291c]`; only the F-keys are gated. An order created or killed after the send exists only on the sender for one turn. **Contested**: Sonnet (area 8) found the END TURN lock (`FUN_004b90a0` → lock callbacks 0x4d96a0, 0x4f7080, 0x4c41a0 plus an input overlay, unlocked by `FUN_004b9110`) to be a real input blocker for the galaxy, system and diplomacy screens, and an earlier runtime test found the system screen locked after TURN. Decisive runtime check needed per screen (and with the turn timer). | code (guards missing) / contested (reachability) | Fable ×4, Sonnet ×2; contra Sonnet area 8 |
+| N3 | turn | **Second END TURN while waiting**: `FUN_00458120` has no "already ended" guard; a second call (double click, timer plus click) re-sends 0x68/0x74. The 0x68 carries no turn number (the header seed is ignored, `FUN_00507a80` = `ret`): a duplicate dispatched in the pre-busy pumps starts a nested turn (R11); one filed after the merge becomes the sender's orders for the next turn on some receivers (stale orders, permanent off-by-one). Open: whether the TURN button stays clickable. Fix: return at 0x458143 when `[0x590248] != 0`; skip `FUN_00458170` at 0x456321 when the payload was discarded. | plausible | Sonnet, Fable ×2 |
+| N4 | turn | **Inactive window while waiting**: the two pumps of `FUN_00458170` before busy=1 (0x4581e6, 0x458203) block in WaitMessage while the window is inactive (alt-tab), but still dispatch network notifications, and Fix B does not park (busy = −1): a fast player's 0x74 for the next turn replaces build queues before this machine processed the current turn, his 0x68 starts a nested turn (two turns processed). Our test build forces the window active, so the test bed cannot see it. | plausible | Fable |
+| N5 | leave / drop | **Player-leave timing** (new mechanisms in the known-open area): a DESTROYPLAYER dispatched in the pre-busy pumps runs `FUN_0050d730` → `FUN_00458170` nested (two turns, 0x50d8a4); a leaver's last 0x68 is merged on machines whose barrier completed first and dropped where the DESTROYPLAYER came first (Fix Y frees the slot) → divergence instead of the former hang; the takeover `FUN_0043a160` draws the RNG at arrival time and is skipped on machines that already marked the empire eliminated; the host's 0x66/0x67 table/mask broadcast can overwrite the receiver's mask mid-turn. Fix direction: apply a leave at a fixed point (host game message "player left as of turn T", or park 0x402/0x66/0x67 while busy and replay at the flush). | code (mechanisms) / plausible (timing) | Fable, Sonnet |
+| N6 | battles | **Tactical task-force array not zeroed**: `[0x597860]` (n×0x74) is allocated at 0x520ef3 with `FUN_00492f10` (no clearing; Fix F only clears the unit array). +0x24..+0x3b (three doubles) is never written but read by the RETREAT handler `FUN_0056c1f8` (ai\retreat.c, 0x56c2cb..0x56c358) as an aim point → heap residue steers units differently per machine → eventListCRC assert (battle.c 909). Needs a battle with two or more humans and an order-10 unit. Fix: reuse Fix F's zeroing helper at 0x520ef3. | code (uninitialised read) / plausible (impact) | Sonnet |
+| N7 | economy | **Shipyard loss, arm A still open**: `FUN_00445a10` decides at 0x445a28 (`cmp [sys+0x80],3`) whether to kill the system's ship order (mode 0, no request). +0x80 is the owner form: after a ship completion with another ship queued (or a ship picked in the UI) the owner has 3, the others 0 → the owner kills, the others keep building. The earlier conclusion "arm A harmless" (R2 test in steady state, where the record is 3 everywhere) does not cover this window. Fix: decide from the order list (equal everywhere), let every machine kill. | code | Sonnet ×2 |
+| N8 | Fix H | **Fix H run without revalidation**: `rearm_run` executes kind-1 entries (`FUN_004616f0` + `FUN_0044d830`) without re-checking the system; when the system changes hands to a computer empire in the same invasion step its queue is freed (+0xa8 = 0) → null dereference at 0x44d84b on every machine. With a ship-only queue arm A and arm B are both queued → duplicate trade-goods orders (symmetric). | code (rare) | Sonnet |
+| N9 | battles | **Battle-list CRC 0x70 stored before the turn-start reset**: a fast machine's 0x70 can arrive while a slow one is still in the pre-busy pumps (screen fade); `FUN_00475290` then wipes it → both machines wait forever. Contested: Sonnet (area 6) places the only effective reset at the end of the previous turn. | plausible / contested | Fable |
+| N10 | battles | **Human eliminated before the battle phase of the same turn** (rebellion/incident paths before `FUN_0046fd80`): his machine still opens the battle and blocks in the barrier; his 0x6e orders are applied on the others at dispatch time (the 0x6e handler does not filter the human mask). | plausible (rare) | Fable, Sonnet |
+| N11 | military | **Invading a system whose native minor race is already eliminated**: `FUN_00466cf0` writes the race's contact record through a null pointer (0x4679a1 / 0x467fe0 → address 0x3c) → crash on every machine. Trigger: a minor home bombarded to extinction, then a fleet with the invade mission arrives. | code (crash, same everywhere) | Fable |
+| N12 | RNG | **Float RNG shuffle table survives a new game**: `FUN_00507d10` re-seeds only `[0x596bac]`/`[0x596bc0]`; the ran1 table index `[0x596bc4]` is never reset, so a process that already generated a galaxy skips the 40-step warm-up → different galaxy than freshly started processes (second game without restarting trek.exe). Loads restore the whole block (fine). | code (mechanism) / plausible | Fable |
+| N13 | Fix IN | **Fix IN also skips the intel panel hide** (its `ret` covers the hide at 0x4bcb93..0x4bcba7) and drops the slider edits silently (symmetric, UI only). | code | Sonnet |
+| N14 | turn | **Timer auto-end inside processing**: with a turn limit, the timer callback can fire inside a battle-barrier loop at DispatchMessage depth 0 (Fix K passes) → `FUN_00458120` mid-turn, busy overwritten with −1, nested turn start. Fix: Fix K also defers while `[0x5a291c] != 0`. | plausible | Fable |
+| N15 | checksums | **Detection gap**: a 0x71 that arrives while the receiver waits (busy −1) is stored and wiped at the next turn start, never compared on that machine. Detection only. | code | Fable ×2, Sonnet |
+| N16 | Fix C | The patched send gives up after 5 s of failures; receivers keep a partial record → the game hangs like before the fix (robustness). | code | Sonnet |
+| N17 | various | Speculative or harmless: task-force redirect with two persisting orders (`FUN_004dd5a0`); path freed by a foreign path id (0x46c212); loader resets the shared order counter for minor orders (`FUN_00456bb0`); minor/monster orders all have seqno 0 (one per type survives the merge, symmetric); AI-only/auto-resolve battle results applied after an unstable sort; tactical replay file `.tac` write failure asserts locally; empty 0x74 for a player without systems asserts (pdqueue.c:418); a combat dialog closed with Escape might never set its result. | spec. | Fable, Sonnet |
+| N18 | memory | Leaks without desync: Fix EL/Y free slot lists without the order-body callback 0x457f80; the merge's duplicate drop frees neither node nor body; the military re-plan overwrites path ids without freeing. | code | Fable, Sonnet |
 
-Areas both rounds found clean apart from the above: transport, fragments, every dispatcher branch, resume transfer;
-order creation/packing/receipt and types 0–9; production loop, queues, buy, scrap, labor, structures, trade;
-movement, missions, stations, monsters, strategic combat ordering; diplomacy, minor races, events; AI planners and
-save/load content.
+Notes from rounds 3 and 4: the Fix W comment is wrong about ship names (the ship CRC zeroes the first 0x28 bytes,
+so names are not checksummed; the RNG-draw argument stands); Fix G now always replaces a foreign system on the F2
+screen with the player's first own system (behaviour change, no desync); eliminations after the diplomacy phase
+never clean up the dead empire's treaties (symmetric).
 
-## Suggested order
+**Coverage limit (Sonnet, area 8):** `decomp.c` lacks about 200 KB of code (417 functions only in `asm.txt` plus
+gaps in neither file), among them roughly half of the computer-empire code (0x402d00..0x437400) and most screen
+handlers. Earlier reviews that worked from the pseudocode covered those parts only partially; rounds 3 and 4 read
+the gaps they needed in raw disassembly. A complete export of these ranges is a prerequisite for another AI/UI pass.
 
-1. Our own fixes: R4 and R3 (Fix B queue), S1 (Fix H capacity), S3 and R7 (Fix U).
-2. Normal-play desyncs: R2 (intel vs elimination), R1 and S4 (timer: commit or lock the screens before sending).
-3. Player-leaves-during-battle: R5, R6.
-4. Lobby/resume: R8, R9.
-5. Rare/extreme: R10, S2, R13, R11, R12.
+## 3. Suggested order
 
-Each fix needs an A/B runtime test like the earlier ones before a release.
+1. **Small, high-confidence fixes**: N1 (F6, three agents), N6 (zero the tactical task-force array), the capacity
+   and replay bugs in our own fixes (R4, R3, S1, N8, S3, R7), N13.
+2. **Runtime checks that decide the scope**: N2 per screen (decides R1, S4 and the diplomacy/production cases), N7
+   (shipyard arm A in the completion window), N3 (second END TURN), N4 (inactive window; needs a build without the
+   forced-active patch).
+3. R2 (intel vs elimination), R1/S4 depending on N2.
+4. Leave/drop during a turn or battle: R5, R6, N5, N10, N14.
+5. Lobby/resume: R8, R9, N12.
+6. Rare or the same on every machine: R10, S2, N11, R13, N9.
+
+Each fix needs an A/B runtime test like the earlier ones before a release. The 32 agent reports
+(`astra_area*.md`, `sol_area*.md`, `sonnet_area*.md`, `fable_area*.md`) are kept with the test-bed logs
+(`turnlog/fullreview_2026-10-17/` in the working directory), not in the repository.
