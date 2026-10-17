@@ -15,6 +15,7 @@ RNG_ADDR, RNG_LEN = 0x596bac, 0x120
 CRC_ADDR = 0x597610
 SYS_PTR, SYS_CNT, SYS_SIZE = 0x5a36c8, 0x5a36bc, 0x328
 EMP_ADDR, EMP_SIZE, EMP_N = 0x5b1a98, 0x1bc, 5
+STN_PTR, STN_CNT, STN_SIZE = 0x5a36d0, 0x5a36c0, 0x5c   # starbases/outposts: in no heartbeat CRC
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 OUT = os.path.join(BASE, 'turnlog')
 TPL = os.path.join(BASE, 'tpl')
@@ -41,6 +42,9 @@ def snapshot(pid):
     s['nsys'] = cnt
     s['sys'] = rd(pid, sp, cnt * SYS_SIZE) if sp and cnt else b''
     s['emp'] = rd(pid, EMP_ADDR, EMP_SIZE * EMP_N)
+    sp = u32(pid, STN_PTR)
+    s['nstn'] = struct.unpack('<H', rd(pid, STN_CNT, 2))[0]
+    s['stn'] = rd(pid, sp, s['nstn'] * STN_SIZE) if sp and s['nstn'] else b''
     return s
 
 
@@ -84,6 +88,9 @@ def compare(sa, sb):
         rep.append('nsys differs')
     rep += diff_blocks(sa['sys'], sb['sys'], SYS_SIZE, 'sys', skip=sys_skip)
     rep += diff_blocks(sa['emp'], sb['emp'], EMP_SIZE, 'emp', skip=lambda o: 0x50 <= o < 0x98 or 0x154 <= o < 0x158)
+    if sa.get('nstn') != sb.get('nstn'):
+        rep.append('station count differs %s vs %s' % (sa.get('nstn'), sb.get('nstn')))
+    rep += diff_blocks(sa.get('stn', b''), sb.get('stn', b''), STN_SIZE, 'stn')
     return rep
 
 

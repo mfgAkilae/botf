@@ -47,7 +47,10 @@ try:
             log('%s (empire %d) removed after its elimination; remaining %s' % (x, LOCAL[x], NAMES))
         live = [x for x in NAMES if x not in OUT]
         if os.path.exists(os.path.join(out, 'pause')):       # resync spike transfer (tools/spike_live.sh): the
-            time.sleep(1); last_progress = time.time()        # games load, turn and mask are 0 for a moment
+            time.sleep(1); last_progress = time.time()        # games load, turn and mask are 0 for a moment;
+            for t_ in list(snaps):                            # a turn snapshot taken before the transfer must not
+                if len(snaps[t_]) < len(NAMES):               # be compared with one taken after it (an apply
+                    snaps.pop(t_)                             # recomputes the CRC words)
             continue
         if len(live) < 2:                                    # nothing left to compare with
             reason = 'only %s left' % live; break

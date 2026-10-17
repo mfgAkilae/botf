@@ -58,8 +58,10 @@ K_PREP, K_SENT, K_QUEUED, K_REDISP, K_RETIRE, K_RAW, K_APPLY, K_FAIL, K_DONE, K_
 F_RAWLEN, F_RAWCRC, F_OVERFLOW, F_FLAG, F_FILE, F_TOKEN, F_RETIRE = range(1, 8)
 
 
-def apply(p, sec, info, pump_override=True):
+def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     from asmutil import asm, call_rel, jmp_rel        # keystone only for building; tools/spike.py needs just the layout
+    assert owner_mode in ('restart', 'snapshot')
+    snapshot = owner_mode == 'snapshot'
     assert CODE_OFF < DATA_OFF and DATA_OFF + DATA_SIZE <= SECTION_SIZE
     D = sec + DATA_OFF
     a = {k: D + v for k, v in FIELDS.items()}
@@ -564,18 +566,20 @@ def apply(p, sec, info, pump_override=True):
         jmp 0x438800
     ''')
     p.patch(0x4387fb, '83f8017405', jmp_rel(0x4387fb, fo))
+    tail_restore = f'''
+        cmp dword ptr [{a['rs_apply']:#x}], 0
+        je ft_out
+        mov eax, dword ptr [{a['snap_turn']:#x}]
+        cmp eax, dword ptr [{a['apply_turn']:#x}]
+        jne ft_out
+        call {ownrest:#x}''' if snapshot else ''
     ft = put('flagtail', f'''
         call 0x51c9c0
         mov dword ptr [{a['flag_tail']:#x}], 1
         push eax
         movzx eax, byte ptr [0x5a2b28]
         mov dword ptr [{a['loaded_mask']:#x}], eax
-        cmp dword ptr [{a['rs_apply']:#x}], 0
-        je ft_out
-        mov eax, dword ptr [{a['snap_turn']:#x}]
-        cmp eax, dword ptr [{a['apply_turn']:#x}]
-        jne ft_out
-        call {ownrest:#x}
+{tail_restore}
     ft_out:
         pop eax
         jmp 0x4389c5
@@ -618,6 +622,33 @@ def apply(p, sec, info, pump_override=True):
     # 0x4e990e: mov ebp,0x581a5c (5 bytes), first instruction of the assert loop after the kind check at 0x4e9905
     p.patch(0x4e990e, 'bd5c1a5800', jmp_rel(0x4e990e, ibox))
 
+    # ---- finding E, stock variant: restart the local empire's production after the load ------------------------
+    # Every machine of a stock lobby resume takes the non-resume branch of FUN_0050da70 and calls FUN_0043a0a0(local
+    # empire) at 0x50dbc9 (observed with breakpoints), which derives the owner form of the own systems' production
+    # records from the loaded state. The helper forces the resume branch (mask from the file) and so skipped it.
+    # The resume branch now makes the same call after the load, with the same condition, while rs_apply is held.
+    if not snapshot:
+        rst = put('restart', f'''
+            cmp dword ptr [{a['rs_apply']:#x}], 0
+            je rs_out
+            pushad
+            movzx ecx, byte ptr [0x5a2b2a]
+            mov edx, 1
+            shl edx, cl
+            movzx eax, byte ptr [0x597504]
+            test edx, eax
+            je rs_skip
+            mov eax, ecx
+            call 0x43a0a0
+            inc dword ptr [{a['cnt_ownrestore']:#x}]
+        rs_skip:
+            popad
+        rs_out:
+            jmp 0x50dbce
+        ''')
+        # 0x50dd00: jmp 0x50dbce at the end of the resume branch (after the load, local empire and mask restored)
+        p.patch(0x50dd00, jmp_rel(0x50dd00, 0x50dbce).hex(), jmp_rel(0x50dd00, rst))
+
     # ---- pump override at 0x4024d8: idle exit while rs_guard -------------------------------------------
     pump = put('pump', f'''
         cmp dword ptr [{a['rs_guard']:#x}], 0
@@ -654,11 +685,13 @@ def apply(p, sec, info, pump_override=True):
     p.patch(0x4b9f6a, (jmp_rel(0x4b9f6a, info['timerguard']) + b'\x90' * 5).hex(), jmp_rel(0x4b9f6a, tim) + b'\x90' * 5)
 
     # ---- loop-top step functions --------------------------------------------------------------------------
-    prepare = put('prepare', f'''
+    use_ts = f'''
         mov eax, dword ptr [0x5a2918]
         cmp eax, dword ptr [{a['ts_turn']:#x}]
         je pr_have
-        mov dword ptr [{a['prep_fallback']:#x}], 1
+        mov dword ptr [{a['prep_fallback']:#x}], 1''' if snapshot else ''
+    prepare = put('prepare', f'''
+{use_ts}
         mov al, byte ptr [0x5a2b28]
         mov byte ptr [0x5a2998], al
         mov eax, -0xd
@@ -841,7 +874,7 @@ def apply(p, sec, info, pump_override=True):
         ret
     ''')
 
-    step = put('step', f'''
+    turnstart = f'''
         cmp dword ptr [{a['sp_state']:#x}], 0
         jne s_nosnap
         cmp dword ptr [0x5a291c], 0
@@ -858,7 +891,9 @@ def apply(p, sec, info, pump_override=True):
         mov eax, -0xd
         call 0x438630
         mov eax, dword ptr [0x5a2918]
-        mov dword ptr [{a['ts_turn']:#x}], eax
+        mov dword ptr [{a['ts_turn']:#x}], eax''' if snapshot else ''
+    step = put('step', f'''
+{turnstart}
     s_nosnap:
         mov eax, dword ptr [{a['sp_state']:#x}]
         cmp eax, 2

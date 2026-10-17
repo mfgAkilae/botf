@@ -224,10 +224,7 @@ Rate limit (host only): at most 2 accepted transactions per 10 turns; a further 
 ### 4.3 Loop-top step and TICK
 
 - **Loop-top step** (hook 0x402201, five pushes replayed, all registers preserved): checks deadlines, performs
-  the host's steps (§4.5), re-dispatches one queued entry, sends LOADED after a successful apply. **Turn start**
-  (first iteration with `[0x5a291c] == 0` and a new `[0x5a2918]`, no transaction running): snapshot of system
-  +0x80..+0xa7 of every system the local empire owns; the transport host also writes its turn-start save
-  (`[0x5a2998] = [0x5a2b28]`, `FUN_00438630(eax = -0xd)`) — spike finding E.
+  the host's steps (§4.5), re-dispatches one queued entry, sends LOADED after a successful apply.
 - **TICK** = window message `WM_APP + 0x92`, intercepted in the window proc at 0x401507: checks deadlines with
   all registers preserved, returns eax = 0 through 0x401613; any other message replays the cmp and continues at
   0x40150d. Posted by a rate-limited helper (push 0, push 0, push WM_APP+0x92, push `[0x5a074c]`, call
@@ -261,10 +258,11 @@ call to `FUN_0050dd90`; at 0x50dd7b the call goes to the **apply helper**:
    0x43897b: `[0x58fd70] = [0x58fd74] = 0`) while an open incident popup survives, and the screen switch of the
    apply (0x50dc8c → `FUN_004b9180` → `FUN_005001b0` → `FUN_0044ce40`) advances the NULL list
    (`FUN_0051b7a0` → access violation at 0x51b7a1); with an empty list the advance ends the incident sequence
-   the stock way (0x44ce6b); **owner production records** (spike finding E): the tail hook writes back the
-   local empire's turn-start snapshot of system +0x80..+0xa7 (taken by the loop-top step, §4.3) when the snapshot
-   is of the turn being applied; the info box guard at 0x4e990e (the assert's ignore path 0x4e992c) stays as a
-   safety net;
+   the stock way (0x44ce6b); **production restart** (spike finding E): at the end of the resume branch
+   (0x50dd00, after the load and the restore of the local empire and the mask) `FUN_0043a0a0(local empire)` when
+   the local empire's bit is in `[0x597504]` — the call every machine of a stock lobby resume makes at 0x50dbc9,
+   which the forced resume branch skips; the info box guard at 0x4e990e (the assert's ignore path 0x4e992c)
+   stays as a safety net;
 5. **common cleanup, every exit**: restore `[0x5a2994]`; `[0x5a2990] = [0x5fd978]`; release the receive slots
    the Fix Y way; `FUN_00510230`; enable the turn UI (`FUN_004b9110`) when the load has reset the turn state
    (`[0x5a291c] == 0`) and it is still disabled (`[0x594d20]` or `[0x593250]`, set by `FUN_004b90a0` at END TURN;
@@ -279,9 +277,8 @@ call to `FUN_0050dd90`; at 0x50dd7b the call goes to the **apply helper**:
 
 1. phase 1 until 0x71-complete (§3.4); then FREEZE, own gates, own QUIET marked; phase 2;
 2. QUIET from every member of P (D_quiet);
-3. the host's **turn-start save** of the target turn (written by the loop-top step at the first iteration after
-   its turn processing: `[0x5a2998] = [0x5a2b28]`, `FUN_00438630(eax = -0xd)`, also with autosave off; spike
-   finding E) — saving now only as a logged fallback; length and CRC32 of that file; SNAPINFO; phase 3;
+3. `[0x5a2998] = [0x5a2b28]`; save `auto.sav` with `FUN_00438630(eax = -0xd)` (also with autosave off); length
+   and CRC32 of that file; SNAPINFO; phase 3;
 4. `mov eax,0x89; call 0x5199c0` (no body); `FUN_0050de40(eax = -0xd, edx = 0)`;
 5. own apply: the helper of §4.4 from step 1, called directly in the same step (no raw-buffer check; the host
    validated its own file in step 3);
@@ -298,9 +295,9 @@ receive state (0x50d83c, 0x50d870..0x50d894) or starts a turn (0x50d8a4).
 
 - Input of the current turn is lost everywhere; build queues come back from the file and are re-sent at the
   next END TURN.
-- Production: the game continues from the turn start: everybody takes the host's turn-start state, each owner
-  its own turn-start production records (spike finding E); progress is replicated, open is only the item an
-  owner re-armed in the last turn.
+- Production: progress is replicated; each owner re-derives its own systems' production records from the loaded
+  state like after a stock lobby resume (`FUN_0043a0a0`, spike finding E); open is only the item an owner
+  re-armed in the last turn.
 - A wait dialog during the transfer.
 
 ## 6. Risks (ranked)
@@ -332,9 +329,8 @@ the host writes its own, the tool copies them into every client), `rs_guard`, `r
 `sp_flag_tail`, `sp_log[]` (CRC words + RNG + mask per apply, failures), RNG buffer 0x120 bytes.
 
 **States** (all machines; the tool writes `sp_state`)
-1. PREPARE (host only): at its loop top the host takes its turn-start save of this turn (after finding E; saving
-   now with `[0x5a2998] = [0x5a2b28]` is the logged fallback), computes length/CRC32 into `sp_len`/`sp_crc`,
-   logs and **stops** (`sp_state` stays 1).
+1. PREPARE (host only): at its loop top the host writes `[0x5a2998] = [0x5a2b28]`, saves `auto.sav`, computes
+   length/CRC32 into `sp_len`/`sp_crc`, logs and **stops** (`sp_state` stays 1).
 2. ARMED (all machines): the tool copies `sp_len`/`sp_crc` from the host into every client and sets `sp_state = 2`
    everywhere; from now on `rs_guard` is set and 0x89/0x72 are queued, compares are skipped (0x510002) and timer
    END TURN is deferred (Fix K cave).
@@ -351,7 +347,7 @@ the host writes its own, the tool copies them into every client), `rs_guard`, `r
 
 | Site | Original bytes | Spike behaviour |
 |---|---|---|
-| 0x402201 | `56 56 56 56 53` | loop-top step: turn-start snapshot (and the host's turn-start save, finding E), PREPARE / SEND on the host, DRAIN re-dispatch, DONE reset |
+| 0x402201 | `56 56 56 56 53` | loop-top step: PREPARE / SEND on the host, DRAIN re-dispatch, DONE reset |
 | 0x50a6ef | `e8 0c 5f 00 00` | not needed in the spike (no control messages); reserved for §3.3 |
 | 0x50a709 | `66 89 04 24 8b 04 24` | queue 0x89/0x72 while `sp_state` is 2..4; the one-shot token passes exactly the re-dispatched entry |
 | 0x50dd76 | `e8 15 00 00 00` | raw-buffer check against `sp_len`/`sp_crc` (failure: free once, skip, 0x50dd80, log, close dialog) |
@@ -359,7 +355,8 @@ the host writes its own, the tool copies them into every client), `rs_guard`, `r
 | 0x43d0f2, 0x43d0f7 | `e8 79 05 0d 00`, `e8 84 ca 0d 00` | skip while `rs_apply` |
 | 0x4387fb | `83 f8 01 74 05` | file-open flag |
 | 0x4389c0 | `e8 fb 3f 0e 00` | tail flag |
-| 0x4e990e | `bd 5c 1a 58 00` | info box guard (added after the live runs, finding E) |
+| 0x4e990e | `bd 5c 1a 58 00` | info box guard (safety net, added after the live runs, finding E) |
+| 0x50dd00 | `e9 c9 fe ff ff` | production restart `FUN_0043a0a0(local empire)` in the resume branch (finding E) |
 | 0x4024d8 | `3b 35 d4 28 5a 00` | idle exit while `rs_guard` |
 | 0x510002 | `83 bd c0 cf 5c 00 ff` | skip compares while `sp_state` is 2..4 |
 | 0x4b9f6a (existing Fix K cave) | — | defer timer END TURN while `sp_state` is 2..4 |
@@ -398,12 +395,12 @@ instances on one computer, small spiral galaxy. Procedures 1, 2, 4, 5 and 6 were
 | 5 two transfers in a row; lobby-resumed game | passed; finding C |
 | 6 wrong CRC32 on a client; host file missing | passed: rejected, buffer freed once, dialog closed, no load, a second transfer heals the client; the host fails before sending and the clients are reset from ARMED |
 | order evidence | 2 × 100 numbered messages from two senders, also with 40 ms per packet: in order per sender on every receiver (interleaved up to 17 times); the host's multi-fragment 0x72 is dispatched before the messages it sent afterwards |
-| under play (five agents: builds, buys, labor, fleets, diplomacy, combat) | findings D, E, F; with the final build (run 8): four transfers at turns 4, 7, 10 and 13, 26 turns, 14 turns in sync after the last transfer, no heartbeat mismatch, no crash (the agents skip the diplomacy screen in a transfer turn, finding F) |
+| under play (five agents: builds, buys, labor, fleets, diplomacy, combat) | findings D, E, F; snapshot variant (run 8): four transfers, 26 turns, 14 turns in sync after the last transfer; final build (runs 9 and 10, one game): six transfers at turns 4, 7, 9, 12, 15 and 18, 29 turns, 11 turns in sync after the last; no heartbeat mismatch, no crash (the agents skip the diplomacy screen in a transfer turn, finding F) |
 
 Acceptance after every passed apply: DirectPlay ids, player table, session strings and transport object
 unchanged; `[0x597504]` equals the loaded `[0x5a2b28]`; CRC words and normalised RNG equal on all five; full
 state compare (systems including the production fields, empires) without differences apart from each owner's
-production records of its own systems (finding E, as at every turn start); queue empty, token clear; every
+production records of its own systems (finding E, as after a stock resume); queue empty, token clear; every
 0x89/0x72 queued once and re-dispatched once, every 0x89 record retired once; receive list length unchanged.
 With 40 ms per packet on the host a transfer takes 7–10 s.
 
@@ -422,16 +419,20 @@ Findings:
 - **E owner production records**: system +0x80..+0xa7 differs between owner and non-owners between turns. After
   the load (host's save made at PREPARE) an owner held the host's non-owner form of its own systems and died in
   its own UI: galaxy-map info box (infobox.c line 1161, 0x4e9923, three clients) and system screen (redifice.c
-  line 267, structure id 0x7fff). Three variants:
+  line 267, structure id 0x7fff). Four variants:
   1. keep each owner's current records across the load — desynchronised: two turns later the owner had one
      building more (crcSolarBld, system Manu), its record held the effect of current-turn input that the load
      drops everywhere else;
   2. take the host's forms and guard the info box — the system screen asserted next;
-  3. **turn-start configuration** (kept): the host transfers its turn-start save, every machine takes a snapshot
-     of its own systems' records at its turn start (first loop-top iteration after the turn processing) and the
-     load's tail hook writes it back. This is the configuration of every normal turn start; current-turn input is
-     dropped everywhere, the host's included. Run 8: four transfers under play, no UI assert, the info box guard
-     never needed.
+  3. turn-start configuration: the host transfers its turn-start save, every machine takes a snapshot of its
+     own systems' records at its turn start and the load's tail hook writes it back (`--spike-snapshot`). Run 8:
+     four transfers under play, 26 turns in sync, no UI assert;
+  4. **stock restart** (kept, the default): a stock lobby resume runs the non-resume branch of `FUN_0050da70` on
+     every machine (breakpoints at 0x50dae4, 0x50dcc4 and 0x50dbc9 during `resume5.sh`) and calls
+     `FUN_0043a0a0(local empire)` at 0x50dbc9, which derives each owner's records from the loaded state; the
+     spike's forced resume branch skipped that call. The same call at the end of the resume branch (0x50dd00)
+     needs no snapshot and no turn-start save. Runs 9 and 10 (one game): six transfers under play (turns 4, 7, 9,
+     12, 15, 18), 29 turns, in sync, no UI assert, the info box guard never needed.
 - **F diplomacy items**: after a transfer, a click in the diplomacy screen (F5) copied 0x48c bytes from a freed
   object (`FUN_004c81f0` from `FUN_004c2f40`, access violation 0x4c820b): the screen's items point to order
   bodies (`FUN_004c5340` builds them from the current turn's orders), and the load replaces the order list. Not
@@ -593,8 +594,7 @@ are **not** part of the design; sections 1–8 above are authoritative.
 |---|---|---|
 | `[0x5a2994]` "stays 1 in a lobby-resumed game" | 0 in the running resumed game | spike, finding C |
 | helper cleanup without UI | turn UI enabled again after the load | spike, finding A |
-| load hooks: teardown, file-open flag, tail flag | plus incident guard at 0x44ce41, owner records written back at the tail, info box guard at 0x4e990e as a safety net | spike, findings D and E |
-| host saves at step 3 (PREPARE) | host transfers its turn-start save; every machine snapshots its own production records at its turn start | spike, finding E |
-| production "replicated" | owner and non-owner forms of +0x80..+0xa7; turn-start configuration restored | spike, finding E |
+| load hooks: teardown, file-open flag, tail flag | plus incident guard at 0x44ce41, production restart `FUN_0043a0a0` at 0x50dd00, info box guard at 0x4e990e as a safety net | spike, findings D and E |
+| production "replicated" | owner and non-owner forms of +0x80..+0xa7; each owner re-derives its own like after a stock lobby resume | spike, finding E |
 | transport survival, per-sender order: risks for the spike | observed in the spike | spike |
 | deadline values open | 0.3 s per transfer on one computer, 7–10 s with 40 ms per packet | spike |

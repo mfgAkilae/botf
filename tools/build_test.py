@@ -9,6 +9,8 @@ usage: build_test.py <in.exe> <out.exe> [--fix] [--nofixs] [--heapstress N] [--l
   --spike        with --fix: the resync spike (spike_resync.py, docs/resync_design_draft.md section 7) in the
                  enlarged shim section; its data addresses go to <out.exe>.json under 'spike'
   --spike-nopump the spike without the pump override at 0x4024d8 (negative control for inactive windows)
+  --spike-snapshot  owner production records from a turn-start snapshot (and the host's turn-start save) instead
+                 of the stock restart FUN_0043a0a0 after the load (finding E, variants 3 and 4)
 Writes <out.exe>.json with the address of the fake cursor block.
   block+0 fake_x (game coords 0..799), +4 fake_y, +8 enable flag
 """
@@ -75,7 +77,8 @@ if '--fix' in sys.argv:
 
 spike_info = None
 if spike:
-    spike_info = spike_resync.apply(p, sec, info, pump_override='--spike-nopump' not in sys.argv)
+    spike_info = spike_resync.apply(p, sec, info, pump_override='--spike-nopump' not in sys.argv,
+                                    owner_mode='snapshot' if '--spike-snapshot' in sys.argv else 'restart')
     print('spike code', {k: hex(v) for k, v in spike_info['code'].items()})
 
 if latency is not None:

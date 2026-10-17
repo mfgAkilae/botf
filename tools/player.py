@@ -316,6 +316,22 @@ def diplomacy():
     return acts
 
 
+def in_blame_dialog():
+    """intel blame choice shown inside the turn processing (FUN_0047d9b4 -> FUN_00506910, return 0x47dc7f on the
+    main thread's stack): the owner of a successful human intel operation picks whom to incriminate"""
+    import ctypes
+    from dbg import WOW64_CONTEXT, k32, rpm
+    from sampler import threads
+    hp = k32.OpenProcess(0x1F0FFF, False, PID); th = k32.OpenThread(0x1F03FF, False, threads(PID)[0])
+    try:
+        k32.SuspendThread(th)
+        ctx = WOW64_CONTEXT(); ctx.ContextFlags = 0x10007
+        k32.Wow64GetThreadContext(th, ctypes.byref(ctx)); stk = rpm(hp, ctx.Esp, 0x2000)
+    finally:
+        k32.ResumeThread(th); k32.CloseHandle(th); k32.CloseHandle(hp)
+    return any(struct.unpack_from('<I', stk, o)[0] == 0x47dc7f for o in range(0, len(stk) - 3, 4))
+
+
 def turn(): return u32(PID, TURN_ADDR)
 def busy(): return i32(PID, BUSY_ADDR)
 
@@ -542,6 +558,8 @@ def main():
                 acts += ['(processing)' + a for a in browse(rnd.randint(1, 2))]; waits += 1
             if time.time() - t0 > 6:
                 handle_dialogs(dlg, INST, PID, log)
+            if busy() == 1 and time.time() - t0 > 15 and in_blame_dialog():
+                act('blame: first choice'); H.click(H.main_window(PID), 290, 373, pid=PID); acts.append('(processing)blame')
             nap(rnd.uniform(0.5, 2.0))
         log('turn %d -> %d (%.0fs): %s' % (t, turn(), time.time() - t0, ' '.join(acts)))
         last = t
