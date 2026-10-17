@@ -141,3 +141,18 @@ fix. Commands are in `tools/`.
   (first use of the free DGROUP tail at 0x5a1600) makes the AI's second pass (0x477ea7) skip ships of other owners.
   Regression: a manual battle B vs E with AUTO on E (`tools/tactest.sh`, wrapper hit once) ends without a crash and
   the next turn is in sync. The second-pass guard itself was not reached in that battle.
+- **N12 (ran1 table after a new game): refuted.** `FUN_00507d10` clears the table and its index with
+  `memset(0x596bc4, 0, 0x84)` at 0x507d1c (and the second generator at 0x596c48); the pseudocode hid the arguments.
+- **N14 (timer inside processing): refuted.** The timer restarts only at the start of a turn (`FUN_0043d220`), on a
+  load and when the host's options change the strategic timer; during processing the "turn ended" flag
+  `[0x59306c]` is set and the expiry skips END TURN. A timer change by the host would clear that flag for a player
+  who already ended the turn, but the strategic-timer arrows do nothing in a running multiplayer game (tested on
+  the host: the value stays "None").
+- **N13 (Fix IN skips the panel hide): fixed.** The skip path now hides the intel panel like the normal path.
+- **S2 (16-bit morale sum): fixed (Fix MS, static).** The sum is 32 bits wide; the checksums of three turns from
+  `saves/five_1201_t103` are the same with and without the fix.
+- **N11 (invading a system of an extinct minor race): fixed (Fix MI, static).** The null-pointer write is skipped.
+- **R10 (upgrade at exactly 65,535) and R13 (monster spawn on a full map, colonize event id): left open.** Both
+  need very rare states (a build costing more than 65,535 industry with exactly 65,535 invested; no free sector on
+  the whole map), and a fix would need more than a local patch (owner-form +0x90 at build start; abort path with
+  cleanup in `FUN_0044b220`). R13 behaves the same on every machine.

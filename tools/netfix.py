@@ -1137,7 +1137,8 @@ def apply(p):
     # (0x47f190). After END TURN the order list has already been sent, so an in-place change and the direct write
     # stay on the player's machine only. The function keys are blocked while waiting, but the screens can still be
     # reached with the mouse. Found by a static code review (Claude Fable). In multiplayer the commit is now
-    # skipped while the turn state [0x5a291c] is not idle (the change is dropped on every machine alike).
+    # skipped while the turn state [0x5a291c] is not idle (the change is dropped on every machine alike). The
+    # screen's panel is still hidden as before (0x4bcb93..0x4bcbab; review finding N13).
     intelcommit = put('intelcommit', '''
         cmp dword ptr [0x5a2924], 0
         je go
@@ -1150,6 +1151,18 @@ def apply(p):
         mov eax, dword ptr [0x5932b4]
         jmp 0x4bcb98
     skip:
+        push ecx
+        push edx
+        push ebx
+        mov eax, dword ptr [0x5932b4]
+        mov eax, dword ptr [eax]
+        call 0x53dbb0
+        mov edx, dword ptr [0x5932b4]
+        mov edx, dword ptr [edx]
+        call 0x53cf30
+        pop ebx
+        pop edx
+        pop ecx
         ret
     ''')
     # 0x4bcb90: push ecx / push edx / push ebx / mov eax,[0x5932b4] (8 bytes)
@@ -1248,6 +1261,33 @@ def apply(p):
     # 0x47fb6e: mov ebx,1 -> mov ebx,esi: the loop over espionage (1) and sabotage (2) passed category 1 twice, so
     # a pending order kept its sabotage share against the dead empire (the records lose it)
     p.patch(0x47fb6e, 'bb01000000', '89f3909090')
+
+    # ---- Fix MS: the empire morale average sums in 32 bits -----------------------------------------------------
+    # FUN_00461100 adds the morale (+0x44, about 0..200) of every system of an empire in the 16-bit register DI
+    # (0x46118c) and divides the sign-extended sum (0x4611c2). From about 164 systems at high morale the sum wraps
+    # negative, the average fails the range assert in FUN_00465b60 (morale.c line 102) and the game ends on every
+    # machine. Found by static code reviews (review finding S2). The sum is now 32 bits wide.
+    morsum = put('morsum', '''
+        mov edx, dword ptr [esp]
+        lea eax, [ebx+0x240]
+        add eax, edx
+        movsx edx, word ptr [eax+0x44]
+        add edi, edx
+        jmp 0x461190
+    ''')
+    # 0x461181: mov edx,[esp] / lea eax,[ebx+0x240] / add eax,edx / add di,[eax+0x44] (15 bytes)
+    p.patch(0x461181, '8b14248d834002000001d066037844', jmp_rel(0x461181, morsum) + b'\x90' * 10)
+    # 0x4611c2: movsx edx,di -> mov edx,edi
+    p.patch(0x4611c2, '0fbfd7', '89fa90')
+
+    # ---- Fix MI: invading a system whose native minor race is extinct no longer crashes ------------------------
+    # When a system is liberated or conquered, FUN_00466cf0 marks the native minor race's record (+0x3c). For a race
+    # whose bit is set in [0x5a2b50] (eliminated) the inlined record lookup yields a null pointer, and the write to
+    # address 0x3c (0x4679a1 liberate, 0x467fe0 conquer) ends the game on every machine. Reached when a minor
+    # race's home system was bombarded to extinction and a fleet with the invasion mission then takes it. Found by
+    # a static code review (Claude Fable, review finding N11). The write is now skipped for an eliminated race.
+    p.patch(0x46799f, '31c0', 'eb07')        # jmp 0x4679a8 (after the write)
+    p.patch(0x467fde, '31c0', 'eb07')        # jmp 0x467fe7
 
     out["code_end"] = code
     return out
