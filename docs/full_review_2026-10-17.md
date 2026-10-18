@@ -245,4 +245,11 @@ fix. Commands are in `tools/`.
   two or three turns with equal checksums. The SEND after the timer has no effect (the other player gets no
   proposal): END TURN, also by the timer, runs `FUN_004b90a0`, which calls the disable callback of the
   diplomacy and intel screens (table 0x592c90); the research screen (`tech.wdf`) has no disable callback there and
-  the task-force dialog is not in the table, which is why R1 and S4 needed their own fixes. The diplomacy screen does not open after END TURN.
+  the task-force dialog is not in the table, which is why R1 and S4 needed their own fixes. The diplomacy screen
+  does not open after END TURN.
+- **Trade routes: in sync.** They need a friendship treaty, which no test game had before (the agents never answer
+  proposals). After a friendship between the Cardassians and the Ferengi was accepted by hand: a route from
+  Cardassia to Ferenginar assigned (ECONOMIC panel, route slot, target system; it is an economy order, type 0,
+  with a trade-route id), removed (slot, then the source system) and assigned again; the friendship broken while
+  the route was active (the route is gone afterwards). A route assigned after END TURN, also with the slot already
+  selected before END TURN, is not taken. Every step followed by one to three turns with equal checksums.
