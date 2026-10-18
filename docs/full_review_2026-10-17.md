@@ -237,3 +237,12 @@ fix. Commands are in `tools/`.
   mismatch from the next turn on, on every turn. With the automatic resync (`--spike` test build) the host's game
   is transferred once after the mismatch and the four stay in sync. A fix without the resync would need the
   machines to agree on the leaver's orders (relay them or exchange a report before the leave is applied).
+- **Diplomacy between human players: in sync.** The agents propose and declare war but never answer a proposal,
+  so these were played by hand from `saves/war17d_t520`: a non-aggression proposal accepted on the EVENT tab (the
+  treaty becomes active on both sides), the treaty broken from the ACTIVE tab, and a proposal sent after the turn
+  timer ended the turn (`tools/dtimer.py`: the host's timer option is broadcast with message 0x85, so the clients
+  run a timer; B's timer ends its turn while a prepared proposal is open, then B presses SEND). Each followed by
+  two or three turns with equal checksums. The SEND after the timer has no effect (the other player gets no
+  proposal): END TURN, also by the timer, runs `FUN_004b90a0`, which calls the disable callback of the
+  diplomacy and intel screens (table 0x592c90); the research screen (`tech.wdf`) has no disable callback there and
+  the task-force dialog is not in the table, which is why R1 and S4 needed their own fixes. The diplomacy screen does not open after END TURN.
