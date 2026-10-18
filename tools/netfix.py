@@ -1427,11 +1427,15 @@ def apply(p):
     # decrement, so the other computers waited forever for the leaver's block (reproduced with tools/r5leave.sh:
     # E leaves during a tactical battle B vs E; A, C and D hang in the wait loop with one block missing, B goes on).
     # The wait loop (0x474f0d) now ends when every computer that is still a player has delivered its block.
+    d_gone = DATA2 + 0x08      # Fix LV: players who left but stay in the player mask until this turn is calculated
     blwait = put('blwait', f'''
         push eax
         push ebx
         push ecx
         movzx eax, byte ptr [0x5a2b28]
+        mov ecx, dword ptr [{d_gone:#x}]
+        not ecx
+        and eax, ecx
         mov ebx, dword ptr [{d_resmask:#x}]
         movzx ecx, byte ptr [0x5a2b2a]
         cmp ecx, 5
@@ -1456,44 +1460,178 @@ def apply(p):
     # that heard it first ran the takeover -> task forces differ -> sync error (reproduced with tools/r5leave.sh: B
     # heard it first and broadcast; "Battle list CRC error", battle.c line 2487, one turn later on A, B and D). Now
     # the table broadcast runs the same steps for every player it removes from the mask, so each computer runs
-    # them exactly once, whichever way comes first.
-    bltable = put('bltable', '''
+    # them exactly once, whichever way comes first (Fix LV below decides when).
+    d_insend = DATA2 + 0x0c    # Fix LV: 1 while FUN_00458170 pumps messages right before it starts the calculation
+    d_tmp = DATA2 + 0x10
+    # ---- Fix LV: a player's leave takes effect at the same point of the game on every computer ------------------
+    # The leave steps above (player mask, AI takeover, order cleanup) ran whenever the notice arrived. The notices
+    # arrive tens of seconds apart (DirectPlay timeouts), so one computer could apply them in the middle of a turn
+    # calculation and another after it; the game logic then sees the empire as human on one computer and as AI on
+    # the other (review finding N5). Now the steps are taken right away only if this computer will calculate the
+    # current turn without the leaver anyway (it has not received his orders for this turn). Otherwise - the turn
+    # is being calculated, or the leaver's orders for it are here - the player is only marked "gone" (d_gone): he
+    # stays in the player mask, so the calculation treats him exactly as on the computers that do not know yet, while
+    # every wait inside the calculation (battle start, combat rounds, battle results) waits for the remaining players
+    # only. The steps are taken when the calculation ends (before the parked messages are replayed). In both cases
+    # every computer calculates the turn with the leaver's orders if and only if they arrived.
+    # Also, a leave handled in the message pumps of FUN_00458170 right before a calculation starts no longer calls
+    # FUN_00458170 again from inside (a nested call calculated the turn twice on that computer).
+    lvdecide = put('lvdecide', f'''
+        cmp dword ptr [0x5a291c], 1
+        je d_all
+        call 0x4561b0
+        movzx eax, al
+        and eax, ebx
+        ret
+    d_all:
+        mov eax, ebx
+        ret
+    ''')
+    bltable = put('bltable', f'''
         mov al, byte ptr [esp+0x108]
-        push ebx
-        push esi
+        pushad
+        movzx edi, al
         movzx ebx, byte ptr [0x5a2b28]
-        movzx esi, al
-        mov byte ptr [0x5a2b28], al
+        mov esi, edi
         not esi
         and ebx, esi
         and ebx, 0x1f
         cmp dword ptr [0x5a2920], 0
-        je t_done
+        je t_plain
+        call {lvdecide:#x}
+        or dword ptr [{d_gone:#x}], eax
+        or edi, eax
+        xor ebx, eax
+        mov eax, edi
+        mov byte ptr [0x5a2b28], al
+        mov dword ptr [{d_tmp:#x}], ebx
+        mov dword ptr [{d_tmp + 4:#x}], ebx
+        mov eax, ebx
+        not eax
+        and dword ptr [{d_gone:#x}], eax
     t_next:
+        mov ebx, dword ptr [{d_tmp:#x}]
         bsf esi, ebx
-        jz t_done
+        jz t_check
         btr ebx, esi
+        mov dword ptr [{d_tmp:#x}], ebx
         bt dword ptr [0x5a2b50], esi
         jc t_next
-        pushad
         mov eax, esi
         call 0x43a160
         mov eax, esi
         call 0x457dc0
+        jmp t_next
+    t_check:
+        cmp dword ptr [{d_tmp + 4:#x}], 0
+        je t_done
         cmp dword ptr [0x5a291c], 1
-        je t_busy
+        je t_done
+        cmp dword ptr [{d_insend:#x}], 0
+        jne t_done
         xor eax, eax
         call 0x458170
-    t_busy:
-        popad
-        jmp t_next
+        jmp t_done
+    t_plain:
+        mov eax, edi
+        mov byte ptr [0x5a2b28], al
     t_done:
-        pop esi
-        pop ebx
+        popad
         jmp 0x510e8d
     ''')
     # 0x510e81: mov al,[esp+0x108] / mov [0x5a2b28],al (12 bytes)
     p.patch(0x510e81, '8a842408010000a2282b5a00', jmp_rel(0x510e81, bltable) + b'\x90' * 7)
+    # own leave notice: 0x50d868 (DL = the empire, < 5) decides before the player mask is changed
+    lvhandler = put('lvhandler', f'''
+        pushad
+        movzx ebx, dl
+        mov ecx, ebx
+        mov ebx, 1
+        shl ebx, cl
+        call {lvdecide:#x}
+        test eax, eax
+        jnz l_defer
+        not ebx
+        and dword ptr [{d_gone:#x}], ebx
+        popad
+        mov al, 1
+        mov cl, dl
+        shl al, cl
+        not al
+        jmp 0x50d870
+    l_defer:
+        or dword ptr [{d_gone:#x}], eax
+        popad
+        jmp 0x50d8a9
+    ''')
+    p.patch(0x50d868, 'b00188d1d2e0f6d0', jmp_rel(0x50d868, lvhandler) + b'\x90' * 3)
+    lvrecheck = put('lvrecheck', f'''
+        cmp dword ptr [{d_insend:#x}], 0
+        jne r_skip
+        jmp 0x458170
+    r_skip:
+        ret
+    ''')
+    # 0x50d8a4: call FUN_00458170 (leave while waiting: are all orders here now?)
+    p.patch(0x50d8a4, call_rel(0x50d8a4, 0x458170), call_rel(0x50d8a4, lvrecheck))
+    lvins = put('lvins', f'''
+        mov dword ptr [{d_insend:#x}], 1
+        jmp 0x4bb040
+    ''')
+    # 0x4581d6: call FUN_004bb040, first call once FUN_00458170 found all orders (before its message pumps)
+    p.patch(0x4581d6, call_rel(0x4581d6, 0x4bb040), call_rel(0x4581d6, lvins))
+    lvbusy = put('lvbusy', f'''
+        mov dword ptr [{d_insend:#x}], 0
+        jmp {pstart:#x}
+    ''')
+    # 0x458215: call pstart (busy = 1, the calculation starts; Fix E/H above)
+    p.patch(0x458215, call_rel(0x458215, pstart), call_rel(0x458215, lvbusy))
+    # waits inside the calculation use the player mask without the players marked gone
+    for name, at, reg, raw in (('lvm_al', 0x470ed4, 'al', 'a0282b5a00'), ('lvm_bl', 0x473d4a, 'bl', '8a1d282b5a00'),
+                               ('lvm_dl', 0x47433e, 'dl', '8a15282b5a00')):
+        cave = put(name, f'''
+            mov {reg}, byte ptr [0x5a2b28]
+            push ecx
+            mov ecx, dword ptr [{d_gone:#x}]
+            not ecx
+            and {reg}, cl
+            pop ecx
+            ret
+        ''')
+        p.patch(at, raw, call_rel(at, cave) + b'\x90' * (len(raw) // 2 - 5))
+        if name == 'lvm_al':
+            lvm_al = cave
+    # the player table broadcast after a leave (FUN_00510d10, message 0x66) sends the player mask of a running game
+    # (0x510dd2: mov al,[0x5a2b28]); the others learn the leave from it, so it leaves out the players marked gone
+    p.patch(0x510dd2, 'a0282b5a00', call_rel(0x510dd2, lvm_al))
+    # the calculation ends (0x4586d6, Fix B): take the leave steps of the players marked gone, then go on as before
+    lvend = put('lvend', f'''
+        pushad
+    e_next:
+        mov ebx, dword ptr [{d_gone:#x}]
+        bsf esi, ebx
+        jz e_done
+        btr ebx, esi
+        mov dword ptr [{d_gone:#x}], ebx
+        mov eax, 1
+        mov ecx, esi
+        shl eax, cl
+        not eax
+        and byte ptr [0x5a2b28], al
+        cmp dword ptr [0x5a2920], 0
+        je e_next
+        bt dword ptr [0x5a2b50], esi
+        jc e_next
+        mov eax, esi
+        call 0x43a160
+        mov eax, esi
+        call 0x457dc0
+        jmp e_next
+    e_done:
+        popad
+        jmp {endturn:#x}
+    ''')
+    p.patch(0x4586d6, p.read(0x4586d6, 5).hex(), call_rel(0x4586d6, lvend))
 
     out["code_end"] = code
     return out

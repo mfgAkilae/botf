@@ -3,6 +3,7 @@
 # saves/war5_01_t280 (as tools/tactest.sh); both pick FIGHT, E ends the first round (TURN in the tactical view),
 # then E's game is closed and B ends the round (and every later round). Without the fix B waits forever in the
 # round barrier.
+# KILL=D: a player outside the battle leaves instead (D); B and E then end every round.
 # usage: r5leave.sh <exe>
 cd "$(dirname "$0")/.." || exit 1                 # repository root
 H="python -I tools/harness.py"
@@ -34,28 +35,36 @@ if [ -n "$TRACE" ]; then   # TRACE=<inst>: log the leave handler on that instanc
     (TRACER_STOP=$TEMP/r5stop STACKBPS=${TRACEBPS:-50d730,50d8f8,46fd60,4750f3,46ff99} python -I -u tools/ktrace.py $PT 300 > turnlog/r5trace_$TRACE.txt 2>&1 &); sleep 4
   fi
 fi
-$H kill E; sleep 5                                                      # E leaves
-$H click A 400 386; $H click B 305 266; $H click C 236 344; $H click D 300 336   # CLOSE "... Disconnected" (per race skin)
+K=${KILL:-E}
+$H kill $K; sleep 5                                                     # the player leaves
+for xy in A,400,386 B,305,266 C,236,344 D,300,336 E,210,292; do IFS=, read x cx cy <<< "$xy"; [ $x = $K ] || $H click $x $cx $cy; done   # CLOSE "... Disconnected" (per race skin)
 $H click B 95 25                                                        # B ends the round
 python -I - <<'PY'
 import sys, time; sys.path.insert(0, 'tools'); import harness as H
 from autoturn import i32, u32, force_active
-st = H.load_state(); P = {x: st[x] for x in 'ABCD'}
+import os
+K = os.environ.get('KILL', 'E')
+st = H.load_state(); P = {x: st[x] for x in 'ABCDE' if x != K}
 t0 = time.time(); shot = False
 while time.time() - t0 < 180:
     force_active(P)
     if all(u32(P[x], 0x5a2918) > 280 and i32(P[x], 0x5a291c) == 0 for x in P):
         break
     if not shot and time.time() - t0 > 15:
-        H.capture(H.main_window(P['B']), 'shots/r5_B15.png'); shot = True
+        for x in P:
+            H.capture(H.main_window(P[x]), 'shots/r5_%s15.png' % x)
+        shot = True
     if time.time() - t0 > 20:
-        for x, xy in (('A', (400, 386)), ('B', (305, 266)), ('C', (236, 344)), ('D', (300, 336))):
-            H.click(H.main_window(P[x]), *xy, pid=P[x])                # CLOSE a late "Disconnected" message
-        H.click(H.main_window(P['B']), 95, 25, pid=P['B'])           # END / TURN for the next rounds
+        for x, xy in (('A', (400, 386)), ('B', (305, 266)), ('C', (236, 344)), ('D', (300, 336)), ('E', (210, 292))):
+            if x in P:
+                H.click(H.main_window(P[x]), *xy, pid=P[x])            # CLOSE a late "Disconnected" message
+        for x in 'BE':
+            if x in P:
+                H.click(H.main_window(P[x]), 95, 25, pid=P[x])       # END / TURN for the next rounds
     time.sleep(6)
 print('after %ds:' % (time.time() - t0), {x: (H.pid_alive(P[x]), u32(P[x], 0x5a2918), i32(P[x], 0x5a291c), H.readmem(P[x], 0x5a2b28, 1).hex()) for x in P})
 print('player table', [(int.from_bytes(H.readmem(P['A'], 0x5a29f8 + i * 0x34 + 0x28, 4), 'little'), H.readmem(P['A'], 0x5a29f8 + i * 0x34 + 0x2c, 1)[0]) for i in range(5)])
 H.capture(H.main_window(P['B']), 'shots/r5_B.png')
 PY
-for x in A B C D; do [ -s ../test/$x/Crash.log ] && { echo "Crash.log $x:"; sed -n 4,6p ../test/$x/Crash.log; }; done
+for x in A B C D E; do [ -s ../test/$x/Crash.log ] && { echo "Crash.log $x:"; sed -n 4,6p ../test/$x/Crash.log; }; done
 [ -n "$TRACE" ] && { touch $TEMP/r5stop; sleep 3; grep -v "^armed" turnlog/r5trace_$TRACE.txt | cut -c1-220 | head -20; }
