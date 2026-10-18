@@ -41,11 +41,16 @@ def main():
     core = [e for e in entries if not (e[0] <= sleep_off < e[0] + len(e[1]))]
     sleep = [e for e in entries if e[0] <= sleep_off < e[0] + len(e[1])]
     assert len(sleep) == 1 and len(sleep[0][1]) == 1
+    # optional group (Fix MS): its patch sites; the entries covering them get group 1
+    opt = [(ref.va2off(va), n) for va, n in info.get('optional', [])]
+    group = lambda e: 1 if any(e[0] < o + n and o < e[0] + len(e[1]) for o, n in opt) else 0
+    assert sum(group(e) for e in core) == len(opt), 'an optional site was merged with another change'
+    code_end = info['code_end']
 
     # ---- community .patch file -----------------------------------------------------------
     lines = [
-        'NAME: Multiplayer network/desync fix (message order, mid-turn messages, send loop, keepalive, kill requests, production/buy/martial-law/shipyard/refit desyncs, heap race, tactical combat crash, monster state, tactical AUTO, held-back options/load, timer, delete requests)',
-        'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-15',
+        'NAME: Multiplayer network/desync fix v2.0.0 (message order, mid-turn messages, send loop, keepalive, delete requests, production/buy/martial-law/shipyard/refit/research/intel desyncs, players leaving, heap race, tactical combat, monsters, timer)',
+        'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-18',
         'DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.',
         'DESC: B) orders/queues of a faster player that arrive while this machine is still calculating',
         'DESC:    the turn are parked and handled after the calculation instead of in the middle of it.',
@@ -93,8 +98,27 @@ def main():
         'DESC: F) monsters in tactical combat no longer decide on leftover memory (combat units start zeroed).',
         'DESC: CA) conquering the last system of an empire when it is its original capital no longer crashes.',
         'DESC: EL) orders of an eliminated player are no longer merged; IN) intel changes after END TURN are ignored.',
+        'DESC: F6) the leftover debug key F6 no longer spawns a monster on one machine only (multiplayer).',
+        'DESC: F) the tactical task-force array starts zeroed too (a retreat read leftover memory).',
+        'DESC: HA) a shipyard lost right after the queue moved on to a ship: every machine stops the ship order,',
+        'DESC:    not only the owner (the others kept building it -> sync error).',
+        'DESC: IE) when an empire is eliminated, the pending intel orders are kept (the player who had just changed',
+        'DESC:    his intel allocations kept them on his machine only).',
+        'DESC: RS) research allocations are no longer committed after the turn timer ended the turn.',
+        'DESC: RD) the task-force REDEPLOY dialog no longer changes task forces after the turn timer ended the turn.',
+        'DESC: MI) invading a system whose native minor race is extinct no longer crashes every game.',
+        'DESC: MV) the movie playback thread zero-fills its structure itself instead of copying the zero block that',
+        'DESC:    holds this patch (0x516e60).',
+        'DESC: BL) a player who leaves during a battle no longer stalls it (round barriers, battle results), and every',
+        'DESC:    machine runs the leave steps (AI takeover) exactly once, also when it learns of it from another machine.',
+        'DESC: LV) a player who leaves takes effect at the same point of the game on every machine (in the middle of a',
+        'DESC:    turn calculation he is only marked gone until the calculation ends).',
+        "DESC: HB) a slower player's checksums that arrive after this player ended his next turn are compared at once.",
+        'DESC: MS) the empire morale average sums in 32 bits (vanilla only; the mods already have their own sum and',
+        'DESC:    this patch file leaves MS out, the standalone patcher applies it where the original code is found).',
         'DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.',
-        'DESC: Uses the free code area 0x516e60-0x517750 (file 0x116260) and .bss 0x6896e0-0x689800.',
+        'DESC: Uses the code area 0x516e60-0x%06x (file 0x116260; zero in every variant, see MV), .bss 0x6896e0-0x689800' % code_end,
+        'DESC: and the unused end of DGROUP 0x5a1600-0x5a1620 (beyond its file data).',
         'DESC: Also apply the community "packet.patch" (Sleep 10 -> 0 in the send loop) if not yet done.',
         'DESC: patch file name: BotF_MP_fix.patch',
         'TAG: fix',
@@ -103,7 +127,7 @@ def main():
         '# <<  = new value',
         '',
     ]
-    for off, old, new in core:
+    for off, old, new in [e for e in core if group(e) == 0]:
         for k in range(0, len(old), 16):
             lines.append('>> 0x%06x %s' % (off + k, ' '.join('%02X' % x for x in old[k:k + 16])))
         for k in range(0, len(new), 16):
@@ -113,7 +137,7 @@ def main():
 
     # ---- standalone patcher ---------------------------------------------------------------
     tpl = open(os.path.join(os.path.dirname(__file__), 'botf_mpfix_template.py'), encoding='utf-8').read()
-    data = ',\n'.join('    (0x%06x, %r, %r)' % (o, a.hex(), b.hex()) for o, a, b in core)
+    data = ',\n'.join('    (0x%06x, %r, %r, %d)' % (o, a.hex(), b.hex(), group((o, a, b))) for o, a, b in core)
     so, sa, sb = sleep[0]
     tpl = tpl.replace('#PATCH_DATA#', data).replace('#SLEEP_OFF#', '0x%06x' % so)
     open(os.path.join(REL, 'botf_mpfix.py'), 'w', encoding='utf-8', newline='\n').write(tpl)

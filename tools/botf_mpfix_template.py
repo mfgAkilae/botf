@@ -6,26 +6,26 @@ Usage:
     python botf_mpfix.py <path\\to\\trek.exe> --check    show status only
     python botf_mpfix.py <path\\to\\trek.exe> --restore  restore the backup
 
-Tested with all 134 trek.exe variants of "BOTF Most Active 2.0.4" (vanilla EN/DE, all resolutions,
-ECM, BOP, MUM, FAW, AAM, FMPM, UCW, UM5, UDM, GALM, PLUS).
+Tested with all 143 trek.exe variants of "BOTF Most Active 2.0.4" (vanilla EN/DE, all resolutions,
+ECM, ECMS, BOP, MUM, FAW, AAM, FMPM, UCW, UM5, UDM, GALM, PLUS).
 All players should use the patch; unpatched players can still join.
 
-Contents (details in README.md):
-  A  Build queues (msg 0x74) are sent before the orders (msg 0x68).
-  B  Orders/queues of a faster player for the next turn are held back while this machine is
-     still calculating the current turn instead of being applied in the middle of it.
-  C  The send loop no longer blocks the receive thread; a failing send no longer loops forever
-     (freeze when a player is gone); no 10 ms pause per packet.
-  D  A keepalive every 10 s keeps the connection open during long turn calculations.
-  E  Turn processing no longer sends "delete order" requests (they could hit an unrelated order).
-  I  Removing and re-adding martial law no longer leaves a stale counter on the other machines.
-  M  Deleting a build that the turn calculation had just started also resets production on the
-     other machines.
-  N  Deleting a BOUGHT build now tells the other machines (they kept the purchase -> sync error).
+Contents (details in README.md of https://github.com/mfgAkilae/botf):
+  Network and turn order: A (queues before orders), B (messages held back during the turn calculation),
+  C (send loop), D (keepalive), L (options/load held back), K (turn timer in dialogs), HB (checksums
+  compared while waiting).
+  Orders and production: E, V (delete requests), I (martial law), M, N (deleted builds), H, HA (shipyard
+  loss), J (ship-class refit), MS (morale sum, vanilla only: the mods already have their own).
+  Players leaving: Y, EL, LV (leave takes effect at the same point everywhere), BL (leave during a battle).
+  Turn ended or timer: IN (intel), RS (research), RD (task-force redeploy), OP (options), F6 (debug key).
+  Combat: T, U (AUTO), F (combat memory cleared), MI (invading an extinct minor race), X (wormholes),
+  W/W2/W3 (counters reset on load), O, P, Q, G, CA, Z, IE (intel orders on elimination), S (heap lock),
+  MV (the movie thread no longer reads the code area).
 """
 import os, shutil, sys
 
-# (file offset, original bytes, patched bytes)
+# (file offset, original bytes, patched bytes, group): group 0 is required, group 1 (Fix MS) is applied only where
+# all of its original bytes are found (the mods of the installer already changed that code)
 PATCH = [
 #PATCH_DATA#
 ]
@@ -36,13 +36,17 @@ CAVE = (0x116260, 0x117200)       # must be zero before patching
 def status(d):
     if len(d) != 1781248 or d[:2] != b'MZ':
         return 'unknown', 'Not a known trek.exe (size %d).' % len(d)
-    orig = all(d[o:o + len(a) // 2] == bytes.fromhex(a) for o, a, b in PATCH)
-    done = all(d[o:o + len(b) // 2] == bytes.fromhex(b) for o, a, b in PATCH)
+    req = [(o, a, b) for o, a, b, g in PATCH if g == 0]
+    opt = [(o, a, b) for o, a, b, g in PATCH if g == 1]
+    is_a = lambda e: d[e[0]:e[0] + len(e[1]) // 2] == bytes.fromhex(e[1])
+    is_b = lambda e: d[e[0]:e[0] + len(e[2]) // 2] == bytes.fromhex(e[2])
+    orig = all(is_a(e) for e in req)
+    done = all(is_b(e) for e in req) and (all(is_b(e) for e in opt) or not all(is_a(e) for e in opt))
     if done:
         return 'patched', 'The multiplayer fix is already installed.'
     if orig and not any(d[CAVE[0]:CAVE[1]]):
         return 'original', 'Unmodified, compatible trek.exe.'
-    bad = [hex(o) for o, a, b in PATCH if d[o:o + len(a) // 2] != bytes.fromhex(a)]
+    bad = [hex(e[0]) for e in req if not is_a(e)]
     return 'incompatible', 'Unexpected bytes at offsets: ' + ', '.join(bad[:8])
 
 
@@ -81,8 +85,12 @@ def main():
     if not os.path.exists(backup):
         shutil.copy2(path, backup)
         print('Backup created:', backup)
-    for o, a, b in PATCH:
-        d[o:o + len(b) // 2] = bytes.fromhex(b)
+    opt_ok = all(d[o:o + len(a) // 2] == bytes.fromhex(a) for o, a, b, g in PATCH if g == 1)
+    for o, a, b, g in PATCH:
+        if g == 0 or opt_ok:
+            d[o:o + len(b) // 2] = bytes.fromhex(b)
+    if not opt_ok:
+        print('Fix MS left out: this trek.exe already has its own morale sum (mod).')
     if d[SLEEP_OFF] == 0x0a and d[SLEEP_OFF - 1] == 0x6a:
         d[SLEEP_OFF] = 0x00
     open(path, 'wb').write(d)

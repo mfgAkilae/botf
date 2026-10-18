@@ -1284,10 +1284,17 @@ def apply(p):
         add edi, edx
         jmp 0x461190
     ''')
-    # 0x461181: mov edx,[esp] / lea eax,[ebx+0x240] / add eax,edx / add di,[eax+0x44] (15 bytes)
-    p.patch(0x461181, '8b14248d834002000001d066037844', jmp_rel(0x461181, morsum) + b'\x90' * 10)
-    # 0x4611c2: movsx edx,di -> mov edx,edi
-    p.patch(0x4611c2, '0fbfd7', '89fa90')
+    # The mods of "BOTF Most Active" (ECM, BOP, MUM, FAW, ...) already changed this sum (0x461181: lea eax,[ebx+0x240]
+    # / add eax,[esp] / movzx eax,word [eax+0x44] / add edi,eax), so Fix MS is optional: applied only where the
+    # original code is found. The release patcher treats these two sites as one optional group (out['optional']).
+    ms_orig = '8b14248d834002000001d066037844'
+    out['optional'] = []
+    if p.read(0x461181, 15).hex() == ms_orig and p.read(0x4611c2, 3).hex() == '0fbfd7':
+        # 0x461181: mov edx,[esp] / lea eax,[ebx+0x240] / add eax,edx / add di,[eax+0x44] (15 bytes)
+        p.patch(0x461181, ms_orig, jmp_rel(0x461181, morsum) + b'\x90' * 10)
+        # 0x4611c2: movsx edx,di -> mov edx,edi
+        p.patch(0x4611c2, '0fbfd7', '89fa90')
+        out['optional'] += [(0x461181, 15), (0x4611c2, 3)]
 
     # ---- Fix MI: invading a system whose native minor race is extinct no longer crashes ------------------------
     # When a system is liberated or conquered, FUN_00466cf0 marks the native minor race's record (+0x3c). For a race

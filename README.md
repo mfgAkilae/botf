@@ -62,6 +62,17 @@ session. Player reports of the late-game bug almost always show the same signatu
 | CA | **Conquering the last system of an empire when it is its original capital** read a word at address 0 (empty system list): crash on every machine. | Static code review. | An empty list stores the game's "no home system" value. |
 | EL | **Orders of an eliminated player** (whose game stays open) were still merged, in different turns on different machines. | Static code review. | Receive slots of players no longer in the human mask are released instead of merged. |
 | IN | **Intel allocations committed after END TURN** changed an already sent order in place and the player's own record at once. | Static code review (the function keys are blocked while waiting; the screens can still be reached with the mouse). | The commit is skipped while the turn is not idle. |
+| **F6** | **The F6 key spawns a monster on one machine.** A leftover debug key sets the random-event flag (0x401ad7) whenever a game runs, without the cheat or multiplayer check; the next turn spawns a monster and resets the countdown on that machine only. | Reproduced: A/B from a turn-520 save (`tools/f6test.sh`), heartbeat mismatch at the next turn without the fix. | The key is ignored in multiplayer. |
+| **HA** | **A shipyard is lost right after the queue moved on to a ship** (scrap, bombardment, unrest). Whether to stop the ship order was decided from a production record that only the owner has in its current form: only the owner stopped it, the others kept building. | Reproduced (`tools/n7test.sh`): heartbeat mismatch in the same turn; the others put 3163 industry into the ship. | Every machine stops the ship orders of a human player's system there. |
+| **IE** | **Intel orders deleted when an empire is eliminated.** The cleanup deleted every pending intel order, but a player who had just changed his intel allocations had already written them into his own record. | Reproduced (`tools/r2intel.py`): 60/0/40 on the player's machine, 50/50 on the others. | The orders are kept (the dead empire's share is moved as intended, now also the sabotage share). |
+| **RS** | **Research allocations committed after the turn timer ended the turn** (the research screen commits when it closes, also when the game closes it). | Reproduced with a one-minute turn timer (`tools/r1timer.py`). | The commit is skipped while the turn is not idle (like IN). |
+| **RD** | **Task-force REDEPLOY after the turn timer ended the turn.** The dialog stays usable and changes the real task forces; the change was not sent any more. | Reproduced (`tools/s4redeploy.py`): heartbeat mismatch. | Its callbacks do nothing while the turn is not idle. |
+| **BL** | **A player leaves during a battle.** The others waited for ever for his round acknowledgement or battle result; when they went on, only the machine that noticed the leave first ran the AI takeover (the others took the player list from its broadcast). | Reproduced (`tools/r5leave.sh`): hang; with the waits fixed alone, "Battle list CRC error" one turn later. | The barriers and the result wait count the remaining players; the broadcast path runs the leave steps too. |
+| **LV** | **A leave takes effect at different points of the game** (the notice arrives tens of seconds apart on the machines). | Static (review N5); tested with leaves inside battles (`tools/r5leave.sh`, also `KILL=D`: a player outside the battle). | During a turn calculation, or when his orders for the turn are already here, the player is only marked gone; the leave steps run when the calculation ends. |
+| **HB** | **Checksums that arrive while waiting are never compared.** A slower player's checksums that arrived after this player ended his next turn were stored and wiped; a desync was only seen on the slower machines. | Reproduced (`tools/hbtest.sh`, breakpoint trace on the compare). | Compared at once while waiting (the state is still that of the end of the calculation). |
+| MI | **Invading a system whose native minor race is extinct** wrote through a null pointer: crash on every machine. | Static code review. | The write is skipped. |
+| MS | **The empire morale average summed in 16 bits**: from about 164 systems at high morale the assert in morale.c line 102 ended the game on every machine. | Static code review. | 32-bit sum (vanilla only; the mods of the installer already have their own sum, the patcher leaves MS out there). |
+| MV | **The patch's code area is read by the movie playback thread**: it copies that zero block into a local structure, which started with code bytes since v1.0. | Found by a reviewer of the patch. | The thread zero-fills the structure itself. |
 | **X** | **Wormholes.** The exit position of a fleet that flies through a wormhole was converted with the local galaxy-map view (scroll and zoom of that player's screen), so the fleet could come out in different sectors on different machines. | Static code review; regression only (no wormhole in our test galaxies). | The conversion gets a fixed view, the same on every machine. |
 | W3 | The ship name list belongs to the program and was not reset on load (same class as W). | Static code review; regression only. | Reset when a game is loaded. |
 | P | **Changing conquer/liberate on a running invasion is lost.** At End Turn the game only sends a fleet order when something it compares has changed; the conquer/liberate choice was compared for one mission type only. The old choice was executed (on every machine, so no sync error). | Static code review (found independently by two reviews). | The choice is compared for the invasion mission as well. |
@@ -155,13 +166,16 @@ sends its own state to everybody). A save made after the problem does not show t
   not set a course (the task force's path stays empty), so the "course" counts in the runs above overstate
   fleet movement. Fleets did move (missions, some courses), and invasions and eliminations happened in the
   games with computer empires, but human-ordered invasions were not reached by the agents.
-- Not exercised by the agents yet: research allocation (its sliders do not react to simulated input) and
-  human-ordered invasions. Intelligence allocation is exercised since v1.7 (`--assault` agents write the
-  intel screen's data like the sliders do and leave the screen, which commits it).
-- Not fixed (rare, not reproducible on one PC): a player dropping out is handled at different points on each
-  machine when the machines notice the drop at different times (needs three or more humans; on one PC the
-  remaining four stayed in sync, `tools/droptest.sh`); x87 `FSIN/FCOS` in combat geometry might differ
-  between Intel and AMD processors; task-force ids are 16 bit (needs about 32,000 created task forces).
+- Not exercised by the agents yet: research allocation through the sliders (they do not react to simulated
+  input; `tools/r1timer.py` writes the screen data like the sliders do) and human-ordered invasions are rare.
+  Intelligence allocation is exercised since v1.7.
+- Players leaving: handled at the same point on every machine since v2.0 (BL, LV). Not fixed: a leaver whose
+  last orders reach only some machines (he drops in the middle of sending) is calculated with them on those
+  machines only. x87 `FSIN/FCOS` in combat geometry might differ between Intel and AMD processors; task-force
+  ids are 16 bit (needs about 32,000 created task forces).
+- Automatic resync (a desync heals itself: the host sends its game state and every client loads it) works in
+  test builds (`tools/spike_resync.py`, `docs/resync_design_draft.md` section 7.2) but is not part of the
+  release yet: it needs about 5 KB of code in a new section of `trek.exe`.
 - A manual save made during a turn does not contain that turn's orders (orders are only saved at turn
   boundaries); the autosave is not affected.
 - About thirty focused code reviews with three different models (tactical combat, session/lifecycle, turn
