@@ -169,9 +169,11 @@ sends its own state to everybody). A save made after the problem does not show t
 - Not exercised by the agents yet: research allocation through the sliders (they do not react to simulated
   input; `tools/r1timer.py` writes the screen data like the sliders do) and human-ordered invasions are rare.
   Intelligence allocation is exercised since v1.7.
-- Players leaving: handled at the same point on every machine since v2.0 (BL, LV). Not fixed: a leaver whose
-  last orders reach only some machines (he drops in the middle of sending) is calculated with them on those
-  machines only. x87 `FSIN/FCOS` in combat geometry might differ between Intel and AMD processors; task-force
+- Players leaving: handled at the same point on every machine since v2.0 (BL, LV); live tests with a client, the
+  host (DirectPlay makes another machine the host), two players at once and a player inside the turn calculation
+  stay in sync (`tools/droplive.sh`). Not fixed: a leaver whose last orders reach only some machines (he drops in
+  the middle of sending) is calculated with them on those machines only. Reproduced (`tools/porders.sh`): a
+  heartbeat mismatch from the next turn on; the automatic resync (test build, `--spike`) heals it. x87 `FSIN/FCOS` in combat geometry might differ between Intel and AMD processors; task-force
   ids are 16 bit (needs about 32,000 created task forces).
 - Automatic resync (a desync heals itself: the host sends its game state and every client loads it) works in
   test builds (`tools/spike_resync.py`, `docs/resync_design_draft.md` section 7.2) but is not part of the

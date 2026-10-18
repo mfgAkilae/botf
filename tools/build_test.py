@@ -73,7 +73,7 @@ for site in (0x515d45, 0x515f8e, 0x516189):
 if '--fix' in sys.argv:
     import netfix
     info = netfix.apply(p)
-    print('netfix', {k: hex(v) for k, v in info.items()})
+    print('netfix', {k: hex(v) if isinstance(v, int) else v for k, v in info.items()})
 
 spike_info = None
 if spike:

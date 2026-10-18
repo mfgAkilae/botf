@@ -1,7 +1,7 @@
 """Observer for two independent player agents (tools/player.py): keeps both games active, traces
 order kills (ktrace) in both, and the moment each game reaches a new turn it snapshots state, RNG and
 heartbeat CRCs; once both are there it compares them. Stops everything (writes <logdir>/stop) at a
-heartbeat mismatch, a dead game, an eliminated player, no progress for 5 minutes, or after <turns>.
+heartbeat mismatch, a dead game (env OBSERVER_LEAVE=1: a killed game counts as a player who left), an eliminated player, no progress for 5 minutes, or after <turns>.
 usage: observer.py <turns> <logdir>"""
 import os, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,12 +35,18 @@ snaps = {}                      # turn -> {inst: snapshot taken when that game b
 seen = {x: u32(P[x], TURN_ADDR) for x in NAMES}
 last_progress = time.time(); reason = None; progress_turn = min(seen.values())
 LOCAL = {x: H.readmem(P[x], 0x5a2b2a, 1)[0] for x in NAMES}; OUT = {}
+LEAVE = os.environ.get('OBSERVER_LEAVE') == '1'; LEFT = set()   # empires of killed games (tools/droplive.sh)
 log('observer start turn', start, 'mask', hex(MASK0), 'instances', NAMES)
 try:
     while True:
         dead = [x for x in NAMES if not H.pid_alive(P[x])]
         if [x for x in dead if x not in OUT]:
-            reason = 'dead game: %s' % dead; break
+            if not LEAVE:
+                reason = 'dead game: %s' % dead; break
+            for x in dead:                                    # OBSERVER_LEAVE=1: a killed game is a player who left
+                if x not in OUT:
+                    OUT[x] = time.time() - 121; LEFT.add(LOCAL[x])
+                    log('%s (empire %d) died: treated as a player who left' % (x, LOCAL[x]))
         for x in [x for x in OUT if time.time() - OUT[x] > 120 and x in NAMES]:
             NAMES.remove(x); P.pop(x); seen.pop(x, None)    # eliminated player leaves the comparison
             for t in snaps: snaps[t].pop(x, None)
@@ -58,14 +64,22 @@ try:
         masks = {x: H.readmem(P[x], 0x5a2b28, 1)[0] for x in live}
         turns = {x: u32(P[x], TURN_ADDR) for x in live}
         if len(set(masks.values())) > 1:
+            diff = 0
+            for mm in masks.values():
+                diff |= mm ^ next(iter(masks.values()))
+            if LEAVE and all(e in LEFT for e in range(8) if diff >> e & 1):
+                # the leave notice reaches the machines at different times; each applies it before the next turn
+                # calculation (Fix LV), so the masks may differ for a while between two turns
+                time.sleep(1); last_progress = time.time(); continue
             reason = 'masks differ between games: %s turns %s' % ({x: hex(m) for x, m in masks.items()}, turns); break
         m = next(iter(masks.values()))
         if m != MASK0:
             gone = [x for x in NAMES if not m & (1 << LOCAL[x]) and x not in OUT]
             log('PLAYER ELIMINATED: mask %#x -> %#x at turns %s, instances %s; watching 120 s for crashes, then continuing' % (MASK0, m, turns, gone))
+            lost = MASK0 & ~m
             for x in gone: OUT[x] = time.time()
             MASK0 = m
-            if not gone:
+            if not gone and not (lost and all(e in LEFT for e in range(8) if lost >> e & 1)):
                 reason = 'mask changed without a local player leaving: %#x' % m; break
             continue
         if max(turns.values()) - min(turns.values()) > 1:     # lockstep games never drift apart by two turns

@@ -156,6 +156,12 @@ fix. Commands are in `tools/`.
   need very rare states (a build costing more than 65,535 industry with exactly 65,535 invested; no free sector on
   the whole map), and a fix would need more than a local patch (owner-form +0x90 at build start; abort path with
   cleanup in `FUN_0044b220`). R13 behaves the same on every machine.
+- **N9 (battle-list CRC 0x70 wiped by the turn-start reset): refuted.** The only reset of the 0x70 slots and the
+  received mask (`FUN_00475290`, besides new game and load) runs at 0x45822e, after the turn calculation
+  `FUN_00458260` and inside the same busy window. The only 0x70 send is in `FUN_00470e50`, called once per turn at
+  the battle start (0x46ffa7). A peer reaches the battle start of the next turn only after it has this machine's
+  orders for that turn, and this machine sends them after its reset, so a peer's 0x70 cannot arrive before the
+  reset.
 - **R1 (research commit after a timed END TURN): reproduced, fixed (Fix RS).** A game with a one-minute strategic
   timer (`NEWGAME_TIMER=1 tools/newgame5.sh`; the timer arrows ignore posted clicks, so the script sets the
   stored setting). `tools/r1timer.py`: B opens the research screen, the timer ends B's turn, B changes the
@@ -214,3 +220,20 @@ fix. Commands are in `tools/`.
   (the host was conquered by a computer empire in turn 83; the other two players went on), and a five-human war
   game of 100 turns with a monster forced every third turn (`tools/monsterpoke.py`: the spawn countdown set to 0
   on every machine between two turns; 33 spawns, 67 manual combat rounds): no heartbeat mismatch, no crash.
+  Also 120 turns on a large galaxy (82 systems) and 100 turns with 40 ms simulated latency: in sync.
+- **Players leaving under play** (`tools/droplive.sh`: the war game from `saves/war17d_t520` with agents and manual
+  combat; after three turns one game is killed, the others close their "Disconnected" box; the observer runs with
+  `OBSERVER_LEAVE=1`, which accepts the leaver's bit being gone on some machines for a while, because each machine
+  applies the leave at its own point between two turns):
+  B killed while the others waited for orders: 10 more turns in sync. The host A killed: DirectPlay makes another
+  computer the host (C, `[0x5fd978] = 1`), the other four go on in sync for 8 turns. D killed inside the turn
+  calculation (`DROP_WHEN=busy`, all five busy 1): the others finish the calculation and stay in sync, the
+  "gone" mark is cleared everywhere afterwards. B and E killed two seconds apart: the other three go on in sync.
+- **A leaver's orders that reach only some machines: reproduced (open, healed by the resync).**
+  `tools/porders.sh`: A, C and D end the turn, then E; on B the received-orders slot of E is cleared (table
+  `0x5b4870`), as if E dropped in the middle of sending, and E's game is killed. B learns of the leave while idle
+  and without E's orders and applies it at once (computer takeover); A, C and D hold E's orders and only mark him
+  gone. After B ends the turn, B calculates E as a computer empire and the others with E's orders: heartbeat
+  mismatch from the next turn on, on every turn. With the automatic resync (`--spike` test build) the host's game
+  is transferred once after the mismatch and the four stay in sync. A fix without the resync would need the
+  machines to agree on the leaver's orders (relay them or exchange a report before the leave is applied).
