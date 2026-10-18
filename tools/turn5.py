@@ -10,6 +10,22 @@ st = H.load_state(); NAMES = [k for k in 'ABCDE' if k in st and H.pid_alive(st[k
 dlg = Dialogs()
 
 
+def in_blame_dialog(pid):
+    """the intel blame choice (FUN_0047d9b4 -> FUN_00506910) waits inside the turn processing on the main thread
+    (return address 0x47dc7f on its stack); see tools/player.py"""
+    import ctypes
+    from dbg import WOW64_CONTEXT, k32, rpm
+    from sampler import threads
+    hp = k32.OpenProcess(0x1F0FFF, False, pid); th = k32.OpenThread(0x1F03FF, False, threads(pid)[0])
+    try:
+        k32.SuspendThread(th)
+        ctx = WOW64_CONTEXT(); ctx.ContextFlags = 0x10007
+        k32.Wow64GetThreadContext(th, ctypes.byref(ctx)); stk = rpm(hp, ctx.Esp, 0x2000)
+    finally:
+        k32.ResumeThread(th); k32.CloseHandle(th); k32.CloseHandle(hp)
+    return any(struct.unpack_from('<I', stk, o)[0] == 0x47dc7f for o in range(0, len(stk) - 3, 4))
+
+
 def key(x, vk):
     hw = H.main_window(P[x]); H.user32.PostMessageW(hw, 0x100, vk, 1); time.sleep(0.03); H.user32.PostMessageW(hw, 0x101, vk, 0xC0000001)
 
@@ -38,6 +54,10 @@ while not all(u32(P[x], TURN_ADDR) > t and i32(P[x], BUSY_ADDR) == 0 for x in NA
     if time.time() - t0 > 5:
         for x in NAMES:
             handle_dialogs(dlg, x, P[x], print)
+    if time.time() - t0 > 15:
+        for x in NAMES:
+            if i32(P[x], BUSY_ADDR) == 1 and in_blame_dialog(P[x]):
+                print('%s: intel blame dialog, first choice' % x); H.click(H.main_window(P[x]), 300, 369, pid=P[x]); time.sleep(1)
     if time.time() - t0 > 300:
         print('timeout', {x: (u32(P[x], TURN_ADDR), i32(P[x], BUSY_ADDR)) for x in NAMES}); break
     time.sleep(1)
