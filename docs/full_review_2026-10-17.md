@@ -199,3 +199,14 @@ fix. Commands are in `tools/`.
 - **Hall of Fame after END TURN (community report): not reproduced.** `tools/hoftest.sh`: B ends the turn and
   opens the Hall of Fame, the others end the turn; in sync with and without the fixes (test bed, windows active).
   SAVE GAME is disabled after END TURN, for the host too.
+- **N15 (checksums that arrive while waiting): reproduced, fixed (Fix HB).** `tools/hbtest.sh`: B runs a
+  `--slowend` build (30 s longer in the calculation) with a poked divergence; A finishes the turn and ends the next
+  one at once, so B's checksums reach A while A waits (state -1). Without the fix A stores them and the next
+  calculation wipes them: no compare on A (breakpoint trace on both mismatch branches: no hit). With Fix HB the
+  message is compared at once while waiting, as when idle (the state is still the end of the last calculation):
+  A hits the mismatch branch 0x51031f. This also lets the host of an automatic resync see a slow client's
+  divergence. Regression: 20 turns of a war game with agents in sync. `build_test.py --slowend` now chains to the
+  current call at 0x4586d6 (Fix LV put its own cave there).
+- **Long runs with all fixes**: 60 turns from `saves/war17d_t520` and a new 120-turn war game (small galaxy, manual
+  tactical combat, agents with invasions, wars, intel, diplomacy and fleet orders after END TURN: 37 manual combat
+  rounds, 50 invasions, 115 war declarations, 1625 fleet actions while waiting): no heartbeat mismatch, no crash.

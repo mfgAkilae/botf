@@ -1633,5 +1633,17 @@ def apply(p):
     ''')
     p.patch(0x4586d6, p.read(0x4586d6, 5).hex(), call_rel(0x4586d6, lvend))
 
+    # ---- Fix HB: a checksum message that arrives while this computer waits for the others is compared ----------
+    # Every computer sends its checksums (message 0x71) at the end of each turn calculation and compares the others'
+    # when they arrive. FUN_00510260 compares at once only when idle ([0x5a291c] == 0) and otherwise stores the
+    # message for the compare at the end of the next calculation (0x510285); the start of that calculation wipes the
+    # store (FUN_00510230). So a slower computer's checksums that arrive after this player already ended his next
+    # turn (state -1) were never compared here (review finding N15); a desync was then only seen on the slower
+    # computers. While waiting, the game state is still exactly the state at the end of the last calculation (no
+    # random number is drawn outside a calculation, FUN_00507ff0 traps), the same as when idle, so the message is
+    # now compared at once in that state too; only during a calculation is it stored.
+    # 0x510285: cmp dword ptr [0x5a291c],0 / jnz 0x510492 -> cmp dword ptr [0x5a291c],1 / je 0x510492
+    p.patch(0x510285, '833d1c295a00000f8500020000', '833d1c295a00010f8400020000')
+
     out["code_end"] = code
     return out

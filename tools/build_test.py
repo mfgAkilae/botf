@@ -113,7 +113,10 @@ if slowend is not None:
     # Stay in turn processing for <slowend> ms after the last turn phase (right before BUSY is cleared at 0x4586d6)
     # and keep pumping meanwhile: the other machines are idle again while this one is still BUSY (the phases
     # before are synchronous, --slowai delays every machine). Needs --fix (the netfix call at 0x4586d6).
-    endturn = info['endturn']
+    # chain to whatever the netfix call at 0x4586d6 calls now (Fix B endturn, or Fix LV's lvend in front of it)
+    cur = p.read(0x4586d6, 5)
+    assert cur[0] == 0xe8
+    endturn = (0x4586db + int.from_bytes(cur[1:], 'little', signed=True)) & 0xffffffff
     cave5 = sec + 0x1a0
     p.write(cave5, asm(f'''
         pushad
@@ -131,7 +134,7 @@ if slowend is not None:
         jmp {endturn:#x}
     ''', cave5))
     assert cave5 + 0x40 <= sec + 0x200
-    p.patch(0x4586d6, (call_rel(0x4586d6, endturn) + bytes(3 * [0x90])).hex(), call_rel(0x4586d6, cave5) + bytes(3 * [0x90]))
+    p.patch(0x4586d6, cur.hex(), call_rel(0x4586d6, cave5))
     print('slowend', slowend)
 
 if '--nofixs' in sys.argv:
