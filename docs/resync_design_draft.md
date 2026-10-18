@@ -442,6 +442,43 @@ Findings:
 - Right after an apply the CRC word 0x597614 (`FUN_00466360`, list `[0x5b5390]`) is 0 on every machine; the
   next turn computes it normally.
 
+### 7.2 Automatic start (2026-10-18)
+
+The spike no longer needs the driver: a heartbeat mismatch starts the transfer.
+
+- **Detection**: the two branches into the stock "synchronization error" box (0x5100c9 in the turn-end compare
+  loop, 0x51031f in the compare of a late 0x71; string 0x4bd is used nowhere else) jump to a shared check. In
+  multiplayer with `sp_state == 0`, outside the quiet window and without `sp_fallback`, the box is skipped,
+  `sp_detect = 1`, and the loop continues at 0x51000b / 0x5103f8. While a transfer runs, mismatches are ignored.
+- **Host** (transport role `[0x5fd978] == 1`; `[0x5a2990]` is 1 on every machine of a lobby-resumed game, a first
+  live run with it started five transfers at once): at the loop top, with `sp_detect` set and not calculating, it
+  runs PREPARE, broadcasts **ARM** (message 0x8a, 12 bytes: epoch, length, CRC32 of the save), sets itself ARMED
+  and goes to SEND on the next iteration. One retry if PREPARE fails, then `sp_fallback`.
+- **Clients**: ARM is decoded at the dispatcher head 0x50a6ef, before the mute filter, at any depth; it sets
+  `sp_len`/`sp_crc`, `rs_guard` and ARMED (newer epoch only, not on the host); the existing queue/DRAIN/apply path
+  loads the save that follows from the same sender. A client that detected a mismatch and gets no ARM within
+  120 s sets `sp_fallback` (the next mismatch shows the stock box); a client ARMED for 300 s without data resets.
+- **Quiet window** (finding B): after DONE the mismatches of the loaded turn are ignored (`sp_quiet` = that turn,
+  cleared when the turn changes).
+- **Finding F fixed**: after a successful apply every machine closes an open proposal panel (`FUN_004c8290`) and
+  runs the stock per-turn UI refresh of the turn end (`FUN_004b8c20`: system screen, galaxy map including the
+  task-force panel, diplomacy lists via `FUN_004c3e40`, turn-results window). The diplomacy items no longer point
+  to freed order bodies: a proposal sent before a transfer disappears from the list (the host's save does not
+  have it), where the old build kept showing it from freed memory.
+- **Agents** (`tools/player.py --spike-json`) hold their input while `sp_state` or `rs_guard` is set, and play
+  diplomacy in transfer turns again (`--skip-dipl-after-resync` restores the old behaviour).
+
+Results (test build `build_test.py --fix --spike`, five instances):
+- `tools/spike.py auto --diverge C:5 --turns 3` (from `saves/five_1201_t103`): the mismatch is detected, the host
+  starts one transfer, every client applies once, state equal to the host, three more turns in sync.
+- `tools/spike_auto_live.sh` (agents with assault and diplomacy, 24 turns, a divergence on a random client every 4
+  turns): 5 of 5 divergences healed by themselves, 34 to 57 s after the injection; the observer saw no heartbeat
+  mismatch between them; no crash.
+
+Still open: the per-sender fence and FREEZE/RELEASE of the full protocol (section 3); a host that has already
+ended the next turn may not compare a slow client's late 0x71 (the clients then fall back after 120 s); the
+release patcher needs a new PE section for this code (about 5 KB).
+
 ## 8. Open questions
 
 - The terminal helper (§3.6) and the reordered lookup at 0x50a6ef (§3.3) — verify after the spike, before the
@@ -450,8 +487,8 @@ Findings:
 - Exact deadline values: the spike measured 0.3 s per transfer (48–82 KB save) on one computer and 7–10 s with
   40 ms per packet on the host (`--latency 40`); D_loaded (300 s) and D_member (660 s) have ample margin.
 - UI state that refers to objects the load frees or resets: findings A, D and F were found only under play.
-  The diplomacy screen's items (finding F) need a rebuild after the load; a systematic audit of the per-turn UI
-  caches (what the end of the turn processing rebuilds, 0x45856b..0x4586d6) is open.
+  Finding F is fixed by the stock per-turn UI refresh after the apply (7.2); the audit of the per-turn caches found
+  the galaxy map's task-force panel as a second stale pointer, covered by the same refresh.
 
 ---
 

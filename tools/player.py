@@ -2,8 +2,10 @@
 Each agent plays its own empire like a person: browses screens, moves fleets, changes labor and
 production, sometimes buys, presses TURN when done and keeps clicking around while it waits for the
 other player and while the turn is processed. tools/observer.py traces and compares both games.
-usage: player.py <A..E> <seed> <logdir> [--heavy] [--assault] [--waitact] [--home X,Y]
+usage: player.py <A..E> <seed> <logdir> [--heavy] [--assault] [--waitact] [--home X,Y] [--spike-json <exe>.json]
   --heavy   this player checks the galaxy-map tabs several times per turn
+  --spike-json  the .json that build_test.py wrote next to the --spike exe this instance runs: no input while
+            sp_state or rs_guard is set (automatic resync transfer); exits when the instance runs another exe
 Stops when <logdir>/stop exists; makes no input while <logdir>/pause exists."""
 import os, random, struct, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +17,7 @@ INST, seed, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 HEAVY = '--heavy' in sys.argv
 ASSAULT = '--assault' in sys.argv            # war in earnest: invasion missions for fleets at foreign systems
 WAITACT = '--waitact' in sys.argv            # also give fleet orders (mouse only) while waiting for the others
+SKIPDIPL = '--skip-dipl-after-resync' in sys.argv   # resync finding F before its fix: no diplomacy in a transfer turn
 os.makedirs(out, exist_ok=True)
 rnd = random.Random(seed * 10 + ord(INST))
 PID = H.load_state()[INST]
@@ -23,18 +26,70 @@ STOP = os.path.join(out, 'stop')
 PAUSE = os.path.join(out, 'pause')
 RESYNC_TURN = os.path.join(out, 'resync_turn')       # tools/spike_live.sh: turn of the last resync transfer
 SPEED = float(os.environ.get('BOTF_SPEED', '0.4'))   # scales every pause of the agent (1.0 = slow, human-like)
+SPIKE = None                                         # --spike-json: addresses of sp_state and rs_guard
+SPIKE_TURN = None                                    # turn after the last automatic transfer this agent waited for
+
+
+def image_path(pid):
+    import ctypes
+    from ctypes import wintypes
+    k = H.kernel32
+    k.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    h = k.OpenProcess(0x1000, False, pid)
+    buf, n = ctypes.create_unicode_buffer(1024), wintypes.DWORD(1024)
+    ok = h and k.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n))
+    if h:
+        k.CloseHandle(h)
+    return buf.value if ok else None
+
+
+if '--spike-json' in sys.argv:
+    import json
+    SJ = sys.argv[sys.argv.index('--spike-json') + 1]
+    fields = json.load(open(SJ)).get('spike', {})
+    if 'sp_state' not in fields or 'rs_guard' not in fields:
+        sys.exit('%s has no spike fields sp_state/rs_guard: not the .json of a --spike build' % SJ)
+    # the field addresses belong to one build: the exe next to the .json must be the one this instance runs
+    img, exe = image_path(PID), SJ[:-5] if SJ.endswith('.json') else None
+    if not (img and exe and os.path.exists(exe)):
+        print('%s: cannot compare %s with the exe of the instance (%s)' % (INST, SJ, img))
+    elif open(img, 'rb').read() != open(exe, 'rb').read():
+        sys.exit('%s: instance runs %s, which is not %s (the build of %s)' % (INST, img, exe, SJ))
+    SPIKE = (int(fields['sp_state']), int(fields['rs_guard']))
+
+
+def transfer_running():
+    try:
+        return SPIKE is not None and any(struct.unpack('<I', H.readmem(PID, a, 4))[0] for a in SPIKE)
+    except OSError:                                  # game gone
+        return False
+
+
+def spike_wait():
+    # the game starts a resync transfer by itself after a heartbeat mismatch, too fast for the pause file
+    global SPIKE_TURN
+    if not transfer_running():
+        return
+    t0 = time.time()
+    while transfer_running() and not os.path.exists(STOP):
+        time.sleep(0.2)
+    SPIKE_TURN = turn()
+    log('waited %.1fs for a resync transfer, now turn %d' % (time.time() - t0, SPIKE_TURN))
 
 
 def nap(t):
     time.sleep(max(0.05, t * SPEED))
     while os.path.exists(PAUSE) and not os.path.exists(STOP):   # resync spike: no input while a transfer runs
         time.sleep(0.2)
+        spike_wait()
+    spike_wait()
 LOG = open(os.path.join(out, 'player_%s.log' % INST), 'a')
 ACT = open(os.path.join(out, 'player_%s_actions.log' % INST), 'a')
 
 
 def act(what):
     # every single input, written at once: shows the last thing a player did before a game died
+    spike_wait()
     ACT.write('%.3f turn %d busy %d %s\n' % (time.time(), u32(PID, TURN_ADDR), i32(PID, BUSY_ADDR), what)); ACT.flush()
 
 
@@ -493,6 +548,7 @@ def assault():
     # war in earnest: every own task force that stands in a sector with a foreign system gets the invasion
     # mission 0x0e (bombard, then invade with troop transports), "conquer" (+0x30 = 1), exactly what the fleet
     # mission dialog writes (0x4ebd53 / 0x4ebc22); the game sends it as a fleet order at END TURN
+    spike_wait()                                       # writes the UI fleet records without any input
     loc = H.readmem(PID, 0x5a2b2a, 1)[0]
     sp = struct.unpack('<I', H.readmem(PID, 0x5a36c8, 4))[0]
     acts = []
@@ -542,6 +598,7 @@ def main():
     log('player', INST, 'pid', PID, 'heavy' if HEAVY else 'light', 'home', L['home'])
     last = -1
     while not stopped():
+        spike_wait()                                    # the games load: turn and mask are 0 for a moment
         t = turn()
         if t == last or busy() != 0:                           # turn not started yet (or still processing)
             if busy() == 0:
@@ -553,13 +610,15 @@ def main():
             find_home()
         pre = swap_new_build()
         steps = [browse, fleets, production] + ([diplomacy] if rnd.random() < (0.5 if ASSAULT else 0.35) else []) + ([assault] if ASSAULT else []) + ([intel] if ASSAULT and rnd.random() < 0.3 else [])
-        if os.path.exists(RESYNC_TURN) and open(RESYNC_TURN).read().strip() == str(t) and diplomacy in steps:
+        if SKIPDIPL and (SPIKE_TURN == t or os.path.exists(RESYNC_TURN) and open(RESYNC_TURN).read().strip() == str(t)) and diplomacy in steps:
             steps.remove(diplomacy)                          # resync spike finding F: stale diplomacy items until the next turn
         rnd.shuffle(steps)
         acts = list(pre)
         for f in steps:
             if stopped():
                 return
+            if SKIPDIPL and f is diplomacy and SPIKE_TURN == t:   # finding F: an automatic transfer in the middle of this turn
+                continue
             before = own_state() if WAITACT else None
             acts += f()
             if WAITACT and busy() == 0 and own_state() != before:

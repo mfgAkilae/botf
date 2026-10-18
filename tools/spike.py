@@ -20,19 +20,28 @@ usage:
   spike.py ordertest <n> <X> <Y>          X and Y each broadcast n numbered test messages at once; every other
                                           instance checks per-sender order (the delay comes from a --latency build)
   spike.py reset                          DONE on every instance (also from a stuck ARMED)
+  spike.py auto [opts]                    automatic path: play turns as tools/turn5.py does until the game detects a
+                                          heartbeat mismatch and transfers by itself (host PREPARE, ARM message,
+                                          SEND), then the acceptance checks
+      --host X          host instance (default A)
+      --diverge X:S[:D] before the first turn add D (default 7) to the morale word +0x2dc of system S on X
+      --diverge-host S[:D]  the same on the host
+      --timeout S       give up when no transfer started within S seconds (default 600)
+      --turns N         afterwards play N more turns and compare the checksum words after each
 Field addresses come from <exe>.json of the build (default trek_t_spike.exe.json, env SPIKE_JSON); the game
 instances are in test/A..E (env BOTF_TEST).
 """
 import json, os, struct, sys, time, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness as H
-from autoturn import snapshot, compare
+from autoturn import snapshot, compare, force_active, Dialogs, handle_dialogs
 import spike_resync as S
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 TEST = os.environ.get('BOTF_TEST') or next((d for d in (os.path.join(ROOT, 'test'), os.path.join(ROOT, '..', 'test'))
                                             if os.path.isdir(d)), os.path.join(ROOT, 'test'))
-F = json.load(open(os.environ.get('SPIKE_JSON', os.path.join(ROOT, 'trek_t_spike.exe.json'))))['spike']
+JSON = os.environ.get('SPIKE_JSON', os.path.join(ROOT, 'trek_t_spike.exe.json'))
+F = json.load(open(JSON))['spike']
 F = {k: int(v) for k, v in F.items()}
 KIND = {S.K_PREP: 'PREP', S.K_SENT: 'SENT', S.K_QUEUED: 'QUEUED', S.K_REDISP: 'REDISP', S.K_RETIRE: 'RETIRE',
         S.K_RAW: 'RAW', S.K_APPLY: 'APPLY', S.K_FAIL: 'FAIL', S.K_DONE: 'DONE', S.K_TEST: 'TEST'}
@@ -151,6 +160,16 @@ def wait(cond, timeout, what):
     return False
 
 
+def diverge(x, si, dv, ref):
+    a = u32(x, 0x5a36c8) + si * 0x328 + 0x2dc
+    v = struct.unpack('<h', rd(x, a, 2))[0]
+    H.writemem(P[x], a, struct.pack('<h', v + dv))
+    d = compare(snapshot(P[ref]), snapshot(P[x]))
+    print('diverged %s system %d morale %d -> %d; %s vs %s: %d diffs' % (x, si, v, v + dv, ref, x, len(d)))
+    for r in d[:3]:
+        print('   ', r[:160])
+
+
 def run(argv):
     host = argv[argv.index('--host') + 1] if '--host' in argv else 'A'
     clients = [x for x in NAMES if x != host]
@@ -180,14 +199,7 @@ def run(argv):
         print('host idle at turn %d, %s BUSY %d' % (u32(host, 0x5a2918), x, i32(x, 0x5a291c)))
     if '--diverge' in argv:
         spec = argv[argv.index('--diverge') + 1].split(':')
-        x, si, dv = spec[0], int(spec[1]), int(spec[2]) if len(spec) > 2 else 7
-        a = u32(x, 0x5a36c8) + si * 0x328 + 0x2dc
-        v = struct.unpack('<h', rd(x, a, 2))[0]
-        H.writemem(P[x], a, struct.pack('<h', v + dv))
-        d = compare(snapshot(P[host]), snapshot(P[x]))
-        print('diverged %s system %d morale %d -> %d; %s vs %s: %d diffs' % (x, si, v, v + dv, host, x, len(d)))
-        for r in d[:3]:
-            print('   ', r[:160])
+        diverge(spec[0], int(spec[1]), int(spec[2]) if len(spec) > 2 else 7, host)
     # 1 PREPARE (host)
     setf(host, 'sp_state', 1)
     if not wait(lambda: any(e[1] in (S.K_PREP, S.K_FAIL) for e in logs(host, mark[host])), 60, 'PREP on ' + host):
@@ -319,6 +331,243 @@ def run(argv):
         print('  %-40s %s' % (k, 'ok' if v else 'FAIL'))
 
 
+AUTO = ('sp_detect', 'sp_detect_tick', 'sp_quiet', 'sp_epoch', 'sp_arm_rx', 'sp_auto_n', 'sp_fallback')
+SETTLE = 4                      # s idle at the new turn before the next TURN: the 0x71 compare runs right after the turn
+
+
+def counters():
+    return {x: {k: f(x, k) for k in AUTO + ('cnt_applies', 'log_n')} for x in NAMES}
+
+
+def spike_idle(x):
+    return f(x, 'sp_state') == 0 and f(x, 'rs_guard') == 0
+
+
+def detected(c):
+    """instances that detected a heartbeat mismatch since the counters c"""
+    return [x for x in NAMES if f(x, 'sp_detect_tick') != c[x]['sp_detect_tick'] or f(x, 'sp_detect') and not c[x]['sp_detect']]
+
+
+def checksums():
+    v = {x: '%s/%08x' % (rd(x, 0x597610, 10).hex(), rng_norm(x)) for x in NAMES}
+    return 'checksum words equal' if len(set(v.values())) == 1 else 'checksum words DIFFER %s' % v
+
+
+def stock_box(x):
+    """the stock mismatch box FUN_005004a4 on the main thread's stack: return 0x5100e9 (post-turn compare) or 0x51033f
+    (incoming 0x71 compare), as tools/rngtimeline.py"""
+    import ctypes
+    from dbg import WOW64_CONTEXT, k32, rpm
+    from sampler import threads
+    hp = k32.OpenProcess(0x1F0FFF, False, P[x]); th = k32.OpenThread(0x1F03FF, False, threads(P[x])[0])
+    try:
+        k32.SuspendThread(th)
+        ctx = WOW64_CONTEXT(); ctx.ContextFlags = 0x10007
+        k32.Wow64GetThreadContext(th, ctypes.byref(ctx)); stk = rpm(hp, ctx.Esp, 0x2000)
+    finally:
+        k32.ResumeThread(th); k32.CloseHandle(th); k32.CloseHandle(hp)
+    return any(struct.unpack_from('<I', stk, o)[0] in (0x5100e9, 0x51033f) for o in range(0, len(stk) - 3, 4))
+
+
+def press(x, t, dlg, stop):
+    """tools/turn5.py: F1, known dialogs, TURN until x is busy or past turn t; no more input once stop() is true"""
+    hw = H.main_window(P[x])
+    done = lambda: stop() or i32(x, 0x5a291c) != 0 or u32(x, 0x5a2918) > t
+    for _ in range(8):
+        if done():
+            return True
+        H.user32.PostMessageW(hw, 0x100, 0x70, 1); time.sleep(0.03); H.user32.PostMessageW(hw, 0x101, 0x70, 0xC0000001)
+        time.sleep(0.5)
+        handle_dialogs(dlg, x, P[x], print)
+        H.click(hw, *TURN[x], pid=P[x])
+        for _ in range(10):
+            time.sleep(0.3)
+            if done():
+                return True
+    return False
+
+
+def play_turn(host, dlg, c, timeout=300):
+    """one turn on every instance; returns (turn, outcome): 'turn' once every game is idle at the next turn for SETTLE s
+    without a detection, 'transfer' as soon as the host started one (or any machine left IDLE), else what went wrong"""
+    t = u32(host, 0x5a2918)
+    moving = lambda: f(host, 'sp_auto_n') != c[host]['sp_auto_n'] or not all(spike_idle(y) for y in NAMES)
+    force_active(P)
+    for x in NAMES:
+        if not press(x, t, dlg, moving):
+            return t, 'TURN press failed on ' + x
+    t0 = tdlg = time.time(); calm = None
+    while time.time() - t0 < timeout:
+        if moving():
+            return t, 'transfer'
+        fb = [y for y in NAMES if f(y, 'sp_fallback') != c[y]['sp_fallback']]
+        if fb:
+            return t, 'fallback (stock error) on %s' % fb
+        force_active(P)
+        if all(u32(y, 0x5a2918) > t and i32(y, 0x5a291c) == 0 for y in NAMES):
+            calm = calm or time.time()
+            if time.time() - calm > SETTLE:
+                det, hb = detected(c), checksums() != 'checksum words equal'
+                box = [y for y in NAMES if stock_box(y)]
+                if box:
+                    return t, 'stock error box on %s' % box
+                if not det and not hb:
+                    return t, 'turn'
+                if time.time() - calm > SETTLE + 60:        # a detection must start the transfer within a minute
+                    q = max(f(y, 'sp_quiet') for y in NAMES)
+                    return t, ('mismatch detected on %s, no transfer started' % det if det else
+                               '%s, no mismatch detected%s' % (checksums(), ' (quiet up to turn %d)' % q
+                                                                if u32(host, 0x5a2918) <= q else ''))
+        else:
+            calm = None
+            if time.time() - tdlg > 5:
+                for y in NAMES:
+                    handle_dialogs(dlg, y, P[y], print)
+                tdlg = time.time()
+        time.sleep(0.25)
+    return t, 'timeout, turn/busy %s' % {y: (u32(y, 0x5a2918), i32(y, 0x5a291c)) for y in NAMES}
+
+
+def wait_transfer(host, c, timeout=240):
+    """until every machine is IDLE and the host failed or every client applied, failed or fell back; returns
+    (ok, stock boxes seen)"""
+    failed = lambda x: any(e[1] == S.K_FAIL for e in logs(x, c[x]['log_n']))
+    over = lambda x: f(x, 'cnt_applies') != c[x]['cnt_applies'] or f(x, 'sp_fallback') != c[x]['sp_fallback'] or failed(x)
+    t0 = tbox = time.time(); boxes = set()
+    while time.time() - t0 < timeout:
+        if all(spike_idle(x) for x in NAMES) and (failed(host) or all(over(x) for x in NAMES if x != host)):
+            return True, boxes
+        if time.time() - tbox > 2:
+            boxes |= {x for x in NAMES if stock_box(x)}; tbox = time.time()
+        time.sleep(0.25)
+    print('TIMEOUT waiting for the end of the transfer')
+    return False, boxes
+
+
+def auto(argv):
+    miss = [k for k in AUTO if k not in F]
+    if miss:
+        print('%s has no field %s: not a build with the automatic resync (build it with build_test.py --fix --spike '
+              'and the current spike_resync.py, SPIKE_JSON=<that exe>.json)' % (JSON, ', '.join(miss)))
+        return
+    host = argv[argv.index('--host') + 1] if '--host' in argv else 'A'
+    clients = [x for x in NAMES if x != host]
+    timeout = float(argv[argv.index('--timeout') + 1]) if '--timeout' in argv else 600
+    more = int(argv[argv.index('--turns') + 1]) if '--turns' in argv else 0
+    assert all(spike_idle(x) for x in NAMES), 'not all instances IDLE, use reset'
+    c = counters()
+    before = {x: ident(x) for x in NAMES}
+    for x in NAMES:
+        setf(x, 'last_fail', 0)
+    if '--diverge' in argv:
+        spec = argv[argv.index('--diverge') + 1].split(':')
+        diverge(spec[0], int(spec[1]), int(spec[2]) if len(spec) > 2 else 7, host if spec[0] != host else clients[0])
+    if '--diverge-host' in argv:
+        spec = argv[argv.index('--diverge-host') + 1].split(':')
+        diverge(host, int(spec[0]), int(spec[1]) if len(spec) > 1 else 7, clients[0])
+    dlg = Dialogs()
+    t0 = time.time()
+    while True:
+        pool0 = {x: rxpool(x) for x in NAMES}
+        t, how = play_turn(host, dlg, c)
+        if how != 'turn':
+            break
+        print('turn %d -> %d: no mismatch, %s' % (t, u32(host, 0x5a2918), checksums()))
+        if time.time() - t0 > timeout:
+            print('TIMEOUT: no automatic transfer within %.0fs' % (time.time() - t0))
+            status()
+            return
+    if how != 'transfer':
+        print('turn %d:' % t, how)
+        status()
+        return
+    det = detected(c)
+    print('turn %d -> %d: transfer started by %s (sp_auto_n %d -> %d), mismatch detected on %s' % (
+        t, u32(host, 0x5a2918), host, c[host]['sp_auto_n'], f(host, 'sp_auto_n'), det))
+    ts = time.time()
+    ok, boxes = wait_transfer(host, c)
+    print('transfer %.1fs' % (time.time() - ts))
+    time.sleep(2)
+    applies = {}
+    for x in NAMES:
+        print('--', x, 'result', f(x, 'last_result'))
+        for e in logs(x, c[x]['log_n']):
+            print('   ', fmt(e))
+            if e[1] == S.K_APPLY:
+                applies[x] = e
+    if not ok:
+        status()
+        return
+    d = lambda x, k: f(x, k) - c[x][k]
+    det = sorted(set(det) | set(detected(c)))
+    for x in NAMES:
+        print('%s detect %d tick %d quiet %d epoch %d arm_rx +%d auto_n +%d applies +%d fallback +%d' % (
+            x, f(x, 'sp_detect'), f(x, 'sp_detect_tick'), f(x, 'sp_quiet'), f(x, 'sp_epoch'), d(x, 'sp_arm_rx'),
+            d(x, 'sp_auto_n'), d(x, 'cnt_applies'), d(x, 'sp_fallback')))
+    res = {}
+    res['mismatch detected on the host'] = host in det
+    res['one start, by the host (sp_auto_n)'] = d(host, 'sp_auto_n') == 1 and all(d(x, 'sp_auto_n') == 0 for x in clients)
+    res['ARM received on every client'] = all(d(x, 'sp_arm_rx') >= 1 for x in clients)
+    after = {x: ident(x) for x in NAMES}
+    for x in NAMES:
+        if before[x] != after[x]:
+            print('IDENTITY CHANGED on', x, {k: (before[x][k], after[x][k]) for k in before[x] if before[x][k] != after[x][k]})
+    res['ids and session unchanged'] = before == after and all(after[x]['dplay'] for x in NAMES)
+    res['one apply per client'] = all(d(x, 'cnt_applies') == 1 for x in clients)
+    res['applied on every client'] = all(x in applies for x in clients)
+    if applies:
+        res['mask 597504 == loaded mask'] = all(((e[4] >> 16) & 0xff) == (e[4] >> 24) for e in applies.values())
+        vals = {x: (e[2], e[3], e[4] & 0xffff, e[5]) for x, e in applies.items()}
+        res['CRC words and RNG equal (apply log)'] = len(set(vals.values())) == 1
+    res['CRC words and RNG equal (now)'] = checksums() == 'checksum words equal'
+    res['no fallback (sp_fallback)'] = all(d(x, 'sp_fallback') == 0 for x in NAMES)
+    boxes |= {x for x in NAMES if stock_box(x)}
+    if boxes:
+        print('stock error box on', sorted(boxes))
+    res['no stock error box'] = not boxes
+    res['queue empty, token clear'] = all(f(x, 'q_count') == 0 and f(x, 'tok_valid') == 0 for x in NAMES)
+    print('rx pool before the transfer turn', pool0, 'after', {x: rxpool(x) for x in NAMES})
+    s0 = snapshot(P[host])
+    for x in clients:
+        r = compare(s0, snapshot(P[x]))
+        own = [l for l in r if owner_records(l)]
+        r = [l for l in r if not owner_records(l)]
+        print('  %s vs %s: %d diffs (+ %d systems differing only in production records +0x80..+0xa7)' % (host, x, len(r), len(own)))
+        for l in r[:4]:
+            print('     ', l[:200])
+        res['state %s == host' % x] = len(r) == 0
+    print('ACCEPTANCE')
+    for k, v in res.items():
+        print('  %-40s %s' % (k, 'ok' if v else 'FAIL'))
+    if not more:
+        return
+    print('-- %d more turns' % more)
+    eq = 0
+    for k in range(more):
+        c = counters()
+        t, how = play_turn(host, dlg, c)
+        note = ''
+        if how == 'transfer':
+            ok, boxes = wait_transfer(host, c)
+            time.sleep(2)
+            note = ', TRANSFER again (sp_auto_n +%d, detected on %s, %s)' % (
+                f(host, 'sp_auto_n') - c[host]['sp_auto_n'], detected(c), 'finished' if ok else 'NOT FINISHED')
+            if not ok or boxes:
+                print('turn %d%s%s' % (t, note, ', stock error box on %s' % sorted(boxes) if boxes else ''))
+                status()
+                break
+        elif how != 'turn':
+            print('turn %d: %s' % (t, how))
+            status()
+            break
+        cs = checksums()
+        eq += cs == 'checksum words equal'
+        s0 = snapshot(P[host])
+        diffs = {x: len([r for r in compare(s0, snapshot(P[x])) if not owner_records(r)]) for x in clients}
+        print('turn %d -> %d: %s, state diffs vs %s %s%s' % (t, u32(host, 0x5a2918), cs, host, diffs, note))
+    print('checksum words equal after %d of %d more turns' % (eq, more))
+
+
 def ordertest(n, xs):
     marks = {x: f(x, 'trx_n') for x in NAMES}
     ids = {x: u32(x, 0x5fd8c4) for x in NAMES}
@@ -373,6 +622,8 @@ if __name__ == '__main__':
         rx(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 40)
     elif cmd == 'run':
         run(sys.argv[2:])
+    elif cmd == 'auto':
+        auto(sys.argv[2:])
     elif cmd == 'ordertest':
         ordertest(int(sys.argv[2]), sys.argv[3:5])
     elif cmd == 'reset':

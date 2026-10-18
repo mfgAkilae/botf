@@ -7,6 +7,13 @@ clients and writes the states.
 
   sp_state  0 IDLE, 1 PREPARE (host), 2 ARMED (all), 3 SEND (host), 4 DRAIN, 5 DONE
 
+Automatic mode (no tool needed; the manual states above still work): a heartbeat mismatch (0x5100c9, 0x51031f) no
+longer shows the stock synchronization error but sets sp_detect. The host then runs PREPARE from its loop-top step,
+broadcasts ARM (message 0x8a: epoch, sp_len, sp_crc) and goes on to ARMED and SEND; every other machine takes ARM
+in the dispatcher head (before the mute filter) as ARMED with the host's length and CRC32, and the existing queue,
+DRAIN and apply path loads the host's save. A client that sees no ARM within 120 s falls back to the stock error at
+its next mismatch; after DONE the mismatches of the loaded turn are ignored (quiet window, finding B).
+
 Everything lives in the enlarged test shim section (build_test.py --spike): code at sec+0x200, data at sec+0x2000.
 Chained into two netfix caves: the dispatcher hook 0x50a709 (Fix B) and the timer hook 0x4b9f6a (Fix K).
 """
@@ -40,9 +47,25 @@ FIELDS = {
     'cnt_ownrestore': 0x2a8,  # production records written back after loads
     'apply_turn': 0x2ac,   # turn when the last apply started
     'prep_fallback': 0x2b0,   # PREPARE had to save now (no turn-start save of this turn)
+    # automatic mode
+    'sp_detect': 0x2b4,    # a mismatch was seen and waits for a transfer (cleared at DONE and at the fallback)
+    'sp_detect_tick': 0x2b8,  # timeGetTime of the first mismatch of that detection
+    'sp_quiet': 0x2bc,     # turn of the last DONE: its mismatches are stale (finding B); -1 = none
+    'sp_epoch': 0x2c0,     # host: epoch of the last ARM sent; client: of the last ARM accepted
+    'sp_arm_rx': 0x2c4,    # ARMs accepted
+    'sp_auto_n': 0x2c8,    # automatic transfers started (host: ARM sent)
+    'sp_fallback': 0x2cc,  # 1: the next mismatch shows the stock error
+    'sp_auto': 0x2d0,      # host: 1 automatic PREPARE running, 2 ARM sent
+    'sp_retry': 0x2d4,     # host: the automatic PREPARE of this detection failed once
+    'arm_auto': 0x2d8,     # client: this transfer was armed by an ARM message
+    'arm_tick': 0x2dc,     # client: timeGetTime of that ARM
+    'cnt_mismatch': 0x2e0,  # mismatches that reached the hooks (every action, see K_DETECT)
+    'armbody': 0x2e4,      # 0xc: the ARM body sent (host)
+    'armrx': 0x2f0,        # 0x10: body of the last ARM received
     'logring': 0x300,      # 128 x 32: (n, kind, a, b, c, d, e, f)
     'rxring': 0x1300,      # 256 x 12: (wParam, lParam, type) of every received 0x400
     'trxring': 0x1f00,     # 256 x 8: (wParam, seq) of every received test message
+    'cnt_dipl': 0x2700,    # per-turn UI rebuilt after a load (finding F: diplomacy items, task-force panel)
     'ownflag': 0x2800,     # MAXSYS bytes: system i belonged to the local empire at the snapshot
     'ownbuf': 0x2a00,      # MAXSYS x 0x28: system +0x80..+0xa7 (current and last production record)
 }
@@ -51,11 +74,27 @@ DATA_SIZE = 0x2a00 + MAXSYS * 0x28
 LOG_N, RX_N, TRX_N = 128, 256, 256
 QMAX = 4
 TEST_MSG = 0x94            # not a stock id and not one of the planned resync ids 0x8a..0x93
+# Automatic mode. 0x8a is not a stock id (ids above 0x89 end at 0x50a891 -> 0x50a73e: not handled, record left in
+# the pool); the protocol table (design section 3.1) gives 0x8a to REQ, the protocol has to renumber.
+ARM_MSG, ARM_LEN, ARMRX_MAX = 0x8a, 12, 0x10
+FALLBACK_MS = 120000       # client: no ARM this long after its mismatch -> the next mismatch shows the stock error
+ARM_WAIT_MS = 300000       # client: ARMED by an ARM and nothing from the host this long -> DONE (host failed at SEND)
 
 # log kinds
 K_PREP, K_SENT, K_QUEUED, K_REDISP, K_RETIRE, K_RAW, K_APPLY, K_FAIL, K_DONE, K_TEST = range(1, 11)
+# automatic mode
+#   K_DETECT   (site, turn, empire of the entry/sender, action DET_*, sp_state, sp_quiet)
+#   K_AUTO     host starts PREPARE (turn, sp_retry, sp_detect_tick, [0x5a291c])
+#   K_ARM      host sent ARM (epoch, len, crc, turn, send result)
+#   K_ARMRX    client accepted ARM (epoch, len, crc, sender, previous sp_state, sp_detect)
+#   K_ARMIGN   ARM ignored (reason IGN_*, value, sender, sp_epoch)
+#   K_FALLBACK (reason FB_*, ms since the mismatch or 0, turn)
+K_DETECT, K_AUTO, K_ARM, K_ARMRX, K_ARMIGN, K_FALLBACK = range(11, 17)
+DET_NEW, DET_PENDING, DET_QUIET, DET_TRANSFER, DET_STOCK = range(5)
+IGN_LEN, IGN_SENDER, IGN_HOST, IGN_STALE, IGN_STATE, IGN_NOGAME = range(1, 7)
+FB_NOARM, FB_PREPARE = 1, 2
 # failure codes
-F_RAWLEN, F_RAWCRC, F_OVERFLOW, F_FLAG, F_FILE, F_TOKEN, F_RETIRE = range(1, 8)
+F_RAWLEN, F_RAWCRC, F_OVERFLOW, F_FLAG, F_FILE, F_TOKEN, F_RETIRE, F_ARMWAIT = range(1, 9)
 
 
 def apply(p, sec, info, pump_override=True, owner_mode='restart'):
@@ -293,6 +332,14 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     ''')
 
     # ---- apply helper (section 4.4 steps 1-6; LOADED replaced by a log entry) ------------------------------
+    # After a successful apply (finding F): the screens keep per-turn caches with raw pointers into data the load freed - the diplomacy
+    # screen's item lists [0x5cb510..0x5cb51c] point to order bodies (FUN_004c5340 & co.; a later click copied
+    # 0x48c bytes from a freed body in FUN_004c81f0, access violation 0x4c820b) and the galaxy map's task-force
+    # panel ([[0x595554]+0x7c]+0x30) into the freed task-force array. The stock load rebuilds them only at game
+    # start (FUN_004b9570 returns at 0x4b9582 in a running game). Run the stock per-turn UI refresh of the turn
+    # end (FUN_004b8c20, called at 0x458576: system screen, galaxy map, diplomacy rebuild FUN_004c3e40,
+    # turn-results window, re-show of the current screen) after closing an open proposal panel (FUN_004c8290,
+    # as FUN_004c25e0 does first). Both take no register arguments; every machine runs it after its apply.
     # Spike finding (procedure 2): END TURN disables the turn UI (FUN_004b90a0, flags [0x594d20]/[0x593250]) and
     # only the end of turn processing enables it again (FUN_004b9110). A machine that had ended the turn before
     # the transfer kept a dead END TURN button after the load. The common cleanup now enables the turn UI when
@@ -395,6 +442,28 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         movzx edi, byte ptr [0x5a2b28]
         mov ebx, dword ptr [0x5a2918]
 {log(K_APPLY, a='ecx', b='edx', c='eax', d='esi', e='ebx', f='edi')}
+        cmp dword ptr [0x592c78], 1
+        jne h_ui_done
+        cmp dword ptr [0x5940ac], 0
+        je h_ui_done
+        cmp dword ptr [0x5cb510], 0
+        je h_ui_done
+        cmp dword ptr [0x5cb514], 0
+        je h_ui_done
+        cmp dword ptr [0x5cb518], 0
+        je h_ui_done
+        cmp dword ptr [0x5cb51c], 0
+        je h_ui_done
+        cmp dword ptr [0x595554], 0
+        je h_ui_done
+        cmp dword ptr [0x595da8], 0
+        je h_ui_done
+        cmp dword ptr [0x5968a0], 0
+        je h_ui_done
+        call 0x4c8290
+        call 0x4b8c20
+        inc dword ptr [{a['cnt_dipl']:#x}]
+    h_ui_done:
         mov dword ptr [{a['apply_result']:#x}], 1
         popad
         ret
@@ -496,6 +565,146 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     ''')
     # netfix put 'jmp dispatch; nop; nop' at 0x50a709; the spike cave runs first and falls through to it
     p.patch(0x50a709, (jmp_rel(0x50a709, info['dispatch']) + b'\x90\x90').hex(), jmp_rel(0x50a709, disp) + b'\x90\x90')
+
+    # ---- automatic mode: host test, eax = 1 on the host ---------------------------------------------------
+    # Multiplayer [0x5a2924], session [0x5a2920] and the transport role [0x5fd978] == 1 (the DirectPlay session
+    # host). Not [0x5a2990]: a lobby-resumed game has it set on every machine (live run: all five started a
+    # transfer); only a load corrects it (the apply helper copies it from [0x5fd978]).
+    ishost = put('ishost', '''
+        xor eax, eax
+        cmp dword ptr [0x5a2924], 0
+        je ih_out
+        cmp dword ptr [0x5a2920], 0
+        je ih_out
+        cmp dword ptr [0x5fd978], 1
+        jne ih_out
+        inc eax
+    ih_out:
+        ret
+    ''')
+
+    # ---- automatic mode: ARM in the dispatcher head 0x50a6ef, before the mute filter ---------------------------
+    # FUN_00510600 (0x50a6ef) drops a message when the receiver's local [0x5a2b50] marks its own or the sender's
+    # empire; after a divergence that mask can be wrong, so the control is decoded first (design section 3.3).
+    # Regs: eax = esi = wParam (sender id), edi = ebx = lParam, ecx = window message, [esp] = scratch dword (the
+    # frame of 0x50a709, so 0x50a762 returns 1). The type lookup FUN_00519920 (eax = lParam, edx = wParam, as
+    # 0x50a74f/0x50a704 do for 0x400) only reads the record; it needs the receive list [0x5a0dfc] (FUN_0051b150).
+    # ARM changes states only, at any depth. Its record is released exactly once: FUN_00519900 copies the body
+    # and frees the record (0x54dc90 -> FUN_0054dcd0); a body larger than armrx goes to a buffer of the 0x72
+    # receiver's kind (FUN_00492f90, freed with FUN_00492e60; if that allocation fails the record stays in the pool
+    # like a stock unknown id). Every other message runs the filter as before.
+    ctl = put('ctl', f'''
+        cmp ecx, 0x400
+        jne c_filter
+        cmp dword ptr [0x5a0dfc], 0
+        je c_filter
+        pushad
+        mov eax, edi
+        mov edx, esi
+        call 0x519920
+        cmp ax, {ARM_MSG:#x}
+        je c_arm
+        popad
+    c_filter:
+        call 0x510600
+        jmp 0x50a6f4
+    c_arm:
+        mov edx, dword ptr [{a['rx_n']:#x}]
+        and edx, {RX_N - 1}
+        lea edx, [edx + edx*2]
+        shl edx, 2
+        mov dword ptr [edx + {a['rxring']:#x}], esi
+        mov dword ptr [edx + {a['rxring'] + 4:#x}], edi
+        mov dword ptr [edx + {a['rxring'] + 8:#x}], {ARM_MSG:#x}
+        inc dword ptr [{a['rx_n']:#x}]
+        mov eax, edi
+        mov edx, esi
+        call 0x519910
+        mov ebp, eax
+        cmp eax, {ARMRX_MAX}
+        ja c_big
+        mov eax, edi
+        mov edx, {a['armrx']:#x}
+        mov ebx, esi
+        call 0x519900
+        mov ebx, ebp
+        mov ecx, {IGN_LEN}
+        cmp ebp, {ARM_LEN}
+        jne c_ignore
+        mov ecx, {IGN_NOGAME}
+        cmp dword ptr [0x5a2924], 0
+        je c_ignore
+        cmp dword ptr [0x5a2920], 0
+        je c_ignore
+        mov eax, esi
+        call 0x5105d0
+        mov ebx, esi
+        mov ecx, {IGN_SENDER}
+        test eax, eax
+        je c_ignore
+        call {ishost:#x}
+        mov ecx, {IGN_HOST}
+        test eax, eax
+        jne c_ignore
+        mov ebx, dword ptr [{a['armrx']:#x}]
+        mov eax, ebx
+        sub eax, dword ptr [{a['sp_epoch']:#x}]
+        mov ecx, {IGN_STALE}
+        test eax, eax
+        jle c_ignore
+        mov ebx, dword ptr [{a['sp_state']:#x}]
+        mov ecx, {IGN_STATE}
+        test ebx, ebx
+        je c_accept
+        cmp ebx, 2
+        jne c_ignore
+        cmp dword ptr [{a['arm_auto']:#x}], 0
+        je c_ignore
+        cmp dword ptr [{a['q_count']:#x}], 0
+        jne c_ignore
+    c_accept:
+        mov eax, dword ptr [{a['armrx']:#x}]
+        mov dword ptr [{a['sp_epoch']:#x}], eax
+        mov eax, dword ptr [{a['armrx'] + 4:#x}]
+        mov dword ptr [{a['sp_len']:#x}], eax
+        mov eax, dword ptr [{a['armrx'] + 8:#x}]
+        mov dword ptr [{a['sp_crc']:#x}], eax
+        mov dword ptr [{a['rs_guard']:#x}], 1
+        mov dword ptr [{a['sp_state']:#x}], 2
+        mov dword ptr [{a['arm_auto']:#x}], 1
+        mov dword ptr [{a['sp_fallback']:#x}], 0
+        inc dword ptr [{a['sp_arm_rx']:#x}]
+        call dword ptr [0x5743fc]
+        mov dword ptr [{a['arm_tick']:#x}], eax
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+        mov ecx, dword ptr [{a['sp_len']:#x}]
+        mov edx, dword ptr [{a['sp_crc']:#x}]
+        mov edi, dword ptr [{a['sp_detect']:#x}]
+{log(K_ARMRX, a='eax', b='ecx', c='edx', d='esi', e='ebx', f='edi')}
+        popad
+        jmp 0x50a762
+    c_big:
+        mov eax, ebp
+        call 0x492f90
+        test eax, eax
+        je c_kept
+        mov ecx, eax
+        mov edx, eax
+        mov eax, edi
+        mov ebx, esi
+        call 0x519900
+        mov eax, ecx
+        call 0x492e60
+    c_kept:
+        mov ebx, ebp
+        mov ecx, {IGN_LEN}
+    c_ignore:
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+{log(K_ARMIGN, a='ecx', b='ebx', c='esi', d='eax')}
+        popad
+        jmp 0x50a762
+    ''')
+    p.patch(0x50a6ef, call_rel(0x50a6ef, 0x510600).hex(), jmp_rel(0x50a6ef, ctl))
 
     # ---- raw-buffer check at 0x50dd76 (eax = ecx = buffer, edx = ebp = length) ------------------------------
     raw = put('raw', f'''
@@ -672,6 +881,89 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     ''')
     p.patch(0x510002, '83bdc0cf5c00ff', jmp_rel(0x510002, gate) + b'\x90\x90')
 
+    # ---- automatic mode: the heartbeat mismatch branches ---------------------------------------------------------
+    # The stock synchronization error (string 0x4bd via FUN_0048b2e0, message box FUN_005004a4, then the fatal
+    # assert loop FUN_005081b0) has exactly two entries, both `mov eax,0x4bd` and both reached by every mismatch
+    # branch: 0x5100c9 in the turn-end compare loop FUN_0050ffe0 (fall-through from 0x5100c3, jne from
+    # 0x5101af..0x510217) and 0x51031f in the idle compare of an incoming 0x71 FUN_00510260 (fall-through from
+    # 0x510319, jne from 0x510416..0x510481). The turn asserts 0x510058 / 0x5102a1 are a different (fatal) check.
+    # mmcheck: eax = site, edx = empire byte of the entry or sender -> eax = 1 show the stock error, 0 handled.
+    # Order: not multiplayer -> stock; a transfer running (sp_state != 0; in 2..4 the gate above already skips
+    # the turn-end loop) -> ignored, the transfer heals it; turn == sp_quiet -> ignored (stale 0x71 of the turn
+    # just loaded, finding B); sp_fallback -> stock; else detection (sp_detect, first tick), logged every time.
+    mmcheck = put('mmcheck', f'''
+        mov ebx, eax
+        mov edi, edx
+        cmp dword ptr [0x5a2924], 0
+        je mc_stockraw
+        cmp dword ptr [0x5a2920], 0
+        je mc_stockraw
+        inc dword ptr [{a['cnt_mismatch']:#x}]
+        mov esi, {DET_TRANSFER}
+        cmp dword ptr [{a['sp_state']:#x}], 0
+        jne mc_log
+        mov esi, {DET_QUIET}
+        mov eax, dword ptr [0x5a2918]
+        cmp eax, dword ptr [{a['sp_quiet']:#x}]
+        je mc_log
+        mov esi, {DET_STOCK}
+        cmp dword ptr [{a['sp_fallback']:#x}], 0
+        jne mc_log
+        mov esi, {DET_PENDING}
+        cmp dword ptr [{a['sp_detect']:#x}], 0
+        jne mc_log
+        mov esi, {DET_NEW}
+        call dword ptr [0x5743fc]
+        mov dword ptr [{a['sp_detect_tick']:#x}], eax
+        mov dword ptr [{a['sp_detect']:#x}], 1
+    mc_log:
+        mov eax, dword ptr [0x5a2918]
+        mov ecx, dword ptr [{a['sp_state']:#x}]
+        mov edx, dword ptr [{a['sp_quiet']:#x}]
+{log(K_DETECT, a='ebx', b='eax', c='edi', d='esi', e='ecx', f='edx')}
+        xor eax, eax
+        cmp esi, {DET_STOCK}
+        jne mc_out
+        inc eax
+    mc_out:
+        ret
+    mc_stockraw:
+        mov eax, 1
+        ret
+    ''')
+    # 0x5100c9: ebp = entry offset (empire byte at entry +0x124 = [ebp+0x5cd0e4], as the stock diagnostic at
+    # 0x510159); no pushes pending. Handled -> 0x51000b, the next entry (the loop has no other side effects).
+    mmturn = put('mm_turn', f'''
+        pushad
+        movzx edx, byte ptr [ebp + 0x5cd0e4]
+        mov eax, 0x5100c9
+        call {mmcheck:#x}
+        test eax, eax
+        popad
+        jne mt_stock
+        jmp 0x51000b
+    mt_stock:
+        mov eax, 0x4bd
+        jmp 0x5100ce
+    ''')
+    p.patch(0x5100c9, 'b8bd040000', jmp_rel(0x5100c9, mmturn))
+    # 0x51031f: body at esp+0x400, empire byte at esp+0x524 (+0x20 after pushad); the record was consumed at
+    # 0x510273. Handled -> 0x5103f8, the epilogue (the caller 0x50ad74 ignores eax).
+    mm71 = put('mm_71', f'''
+        pushad
+        movzx edx, byte ptr [esp + 0x544]
+        mov eax, 0x51031f
+        call {mmcheck:#x}
+        test eax, eax
+        popad
+        jne m7_stock
+        jmp 0x5103f8
+    m7_stock:
+        mov eax, 0x4bd
+        jmp 0x510324
+    ''')
+    p.patch(0x51031f, 'b8bd040000', jmp_rel(0x51031f, mm71))
+
     # ---- timer END TURN (Fix K cave) deferred while sp_state is 2..4 -----------------------------------
     tim = put('timer', f'''
         cmp dword ptr [{a['sp_state']:#x}], 2
@@ -824,6 +1116,14 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         ret
     ''')
 
+    # Automatic mode at DONE: sp_auto == 1 means the host's automatic PREPARE failed before ARM went out (nothing
+    # was sent, the clients still wait with sp_detect): keep sp_detect for one retry from the next loop-top step;
+    # a second failure gives up and lets the next mismatch show the stock error. Every other DONE (also a manual
+    # transfer, a rejected file or an ARMED timeout) opens the quiet window for the current turn: a machine that
+    # was still in its turn processing sends its 0x71 of this turn after the others loaded, and their idle compare
+    # takes it for a mismatch (finding B). A genuine 0x71 after the load follows the sender's next turn
+    # processing, which increments the turn (0x45856b) before the send (0x50ffec), so it never carries the loaded
+    # turn; the loop-top step closes the window as soon as the turn changes.
     done = put('done', f'''
         mov eax, dword ptr [{a['apply_result']:#x}]
         mov dword ptr [{a['last_result']:#x}], eax
@@ -844,6 +1144,27 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov ecx, {QMAX * 4}
         cld
         rep stosd
+        cmp dword ptr [{a['sp_auto']:#x}], 1
+        jne dn_quiet
+        cmp dword ptr [{a['sp_retry']:#x}], 0
+        jne dn_giveup
+        mov dword ptr [{a['sp_retry']:#x}], 1
+        jmp dn_out
+    dn_giveup:
+        mov dword ptr [{a['sp_retry']:#x}], eax
+        mov dword ptr [{a['sp_detect']:#x}], eax
+        mov dword ptr [{a['sp_fallback']:#x}], 1
+        mov ecx, dword ptr [0x5a2918]
+{log(K_FALLBACK, a=FB_PREPARE, b=0, c='ecx')}
+        jmp dn_out
+    dn_quiet:
+        mov ecx, dword ptr [0x5a2918]
+        mov dword ptr [{a['sp_quiet']:#x}], ecx
+        mov dword ptr [{a['sp_detect']:#x}], eax
+        mov dword ptr [{a['sp_retry']:#x}], eax
+    dn_out:
+        mov dword ptr [{a['sp_auto']:#x}], eax
+        mov dword ptr [{a['arm_auto']:#x}], eax
         mov dword ptr [{a['sp_state']:#x}], eax
         ret
     ''')
@@ -871,6 +1192,109 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         jmp ts_loop
     ts_out:
 {log(K_TEST, a='edi', b='esi')}
+        ret
+    ''')
+
+    # ---- automatic mode: ARM after a successful automatic PREPARE (host) ---------------------------------------
+    # PREPARE leaves sp_state at 1 on success and sets 5 on failure. ARM goes out before 0x89 and 0x72 from the
+    # same sender, so per-sender in-order delivery (spike section 7.1) dispatches it first on every client.
+    arm = put('arm', f'''
+        cmp dword ptr [{a['sp_state']:#x}], 1
+        jne ar_out
+        inc dword ptr [{a['sp_epoch']:#x}]
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+        mov dword ptr [{a['armbody']:#x}], eax
+        mov eax, dword ptr [{a['sp_len']:#x}]
+        mov dword ptr [{a['armbody'] + 4:#x}], eax
+        mov eax, dword ptr [{a['sp_crc']:#x}]
+        mov dword ptr [{a['armbody'] + 8:#x}], eax
+        mov eax, {ARM_MSG:#x}
+        mov edx, {a['armbody']:#x}
+        mov ebx, {ARM_LEN}
+        call 0x519960
+        mov esi, eax
+        inc dword ptr [{a['sp_auto_n']:#x}]
+        mov dword ptr [{a['sp_auto']:#x}], 2
+        mov dword ptr [{a['rs_guard']:#x}], 1
+        mov dword ptr [{a['sp_state']:#x}], 2
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+        mov ecx, dword ptr [{a['sp_len']:#x}]
+        mov edx, dword ptr [{a['sp_crc']:#x}]
+        mov ebx, dword ptr [0x5a2918]
+{log(K_ARM, a='eax', b='ecx', c='edx', d='ebx', e='esi')}
+    ar_out:
+        ret
+    ''')
+
+    # ---- automatic mode: loop-top part (runs before the state switch) -------------------------------------------
+    # 1. the quiet window ends when the turn changes (also keeps a later game of this process at the same turn
+    #    number unaffected);
+    # 2. client ARMED by an ARM and nothing queued for ARM_WAIT_MS: the host failed between ARM and SEND (its SEND
+    #    checks the file before 0x89 goes out) -> DONE without an apply; no dialog is open in state 2;
+    # 3. host: ARM went out in an earlier step -> SEND (the driver's step 3);
+    # 4. idle with sp_detect: the host starts PREPARE unless it is in its turn processing ([0x5a291c] == 1); a
+    #    client waits for ARM and after FALLBACK_MS lets its next mismatch show the stock error.
+    auto = put('autostep', f'''
+        mov eax, dword ptr [{a['sp_quiet']:#x}]
+        cmp eax, -1
+        je au_wait
+        cmp eax, dword ptr [0x5a2918]
+        je au_wait
+        mov dword ptr [{a['sp_quiet']:#x}], -1
+    au_wait:
+        cmp dword ptr [{a['arm_auto']:#x}], 0
+        je au_host
+        cmp dword ptr [{a['sp_state']:#x}], 2
+        jne au_host
+        cmp dword ptr [{a['q_count']:#x}], 0
+        jne au_host
+        call dword ptr [0x5743fc]
+        sub eax, dword ptr [{a['arm_tick']:#x}]
+        cmp eax, {ARM_WAIT_MS}
+        jb au_host
+        mov ebx, eax
+        mov dword ptr [{a['last_fail']:#x}], {F_ARMWAIT}
+{log(K_FAIL, a=F_ARMWAIT, b='ebx')}
+        mov dword ptr [{a['apply_result']:#x}], 2
+        mov dword ptr [{a['sp_state']:#x}], 5
+        ret
+    au_host:
+        mov eax, dword ptr [{a['sp_state']:#x}]
+        cmp eax, 2
+        jne au_idle
+        cmp dword ptr [{a['sp_auto']:#x}], 2
+        jne au_ret
+        mov dword ptr [{a['sp_state']:#x}], 3
+        ret
+    au_idle:
+        test eax, eax
+        jne au_ret
+        cmp dword ptr [{a['sp_detect']:#x}], 0
+        je au_ret
+        call {ishost:#x}
+        test eax, eax
+        je au_client
+        cmp dword ptr [0x5a291c], 1
+        je au_ret
+        mov dword ptr [{a['sp_auto']:#x}], 1
+        mov dword ptr [{a['prep_done']:#x}], 0
+        mov dword ptr [{a['sp_state']:#x}], 1
+        mov eax, dword ptr [0x5a2918]
+        mov ecx, dword ptr [{a['sp_retry']:#x}]
+        mov edx, dword ptr [{a['sp_detect_tick']:#x}]
+        mov ebx, dword ptr [0x5a291c]
+{log(K_AUTO, a='eax', b='ecx', c='edx', d='ebx')}
+        ret
+    au_client:
+        call dword ptr [0x5743fc]
+        sub eax, dword ptr [{a['sp_detect_tick']:#x}]
+        cmp eax, {FALLBACK_MS}
+        jb au_ret
+        mov dword ptr [{a['sp_fallback']:#x}], 1
+        mov dword ptr [{a['sp_detect']:#x}], 0
+        mov ecx, dword ptr [0x5a2918]
+{log(K_FALLBACK, a=FB_NOARM, b='eax', c='ecx')}
+    au_ret:
         ret
     ''')
 
@@ -903,8 +1327,10 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov dword ptr [{a['rs_guard']:#x}], 1
     s_guard:
         cmp dword ptr [{a['test_n']:#x}], 0
-        je s_state
+        je s_auto
         call {sendtest:#x}
+    s_auto:
+        call {auto:#x}
     s_state:
         mov eax, dword ptr [{a['sp_state']:#x}]
         cmp eax, 1
@@ -920,7 +1346,10 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         cmp dword ptr [{a['prep_done']:#x}], 0
         jne s_ret
         mov dword ptr [{a['prep_done']:#x}], 1
-        jmp {prepare:#x}
+        cmp dword ptr [{a['sp_auto']:#x}], 0
+        je {prepare:#x}
+        call {prepare:#x}
+        jmp {arm:#x}
     s_ret:
         ret
     ''')
@@ -941,5 +1370,6 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     p.patch(0x402201, '5656565653', jmp_rel(0x402201, top))
 
     p.write(a['snap_turn'], struct.pack('<ii', -1, -1))       # snap_turn, ts_turn
+    p.write(a['sp_quiet'], struct.pack('<i', -1))
     out['code_end'] = code
     return {'fields': a, 'code': out}
