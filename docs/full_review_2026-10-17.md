@@ -210,3 +210,7 @@ fix. Commands are in `tools/`.
 - **Long runs with all fixes**: 60 turns from `saves/war17d_t520` and a new 120-turn war game (small galaxy, manual
   tactical combat, agents with invasions, wars, intel, diplomacy and fleet orders after END TURN: 37 manual combat
   rounds, 50 invasions, 115 war declarations, 1625 fleet actions while waiting): no heartbeat mismatch, no crash.
+- **Runs after v2.0.0** (build with all fixes): a game with three humans and two computer empires, 150 turns
+  (the host was conquered by a computer empire in turn 83; the other two players went on), and a five-human war
+  game of 100 turns with a monster forced every third turn (`tools/monsterpoke.py`: the spawn countdown set to 0
+  on every machine between two turns; 33 spawns, 67 manual combat rounds): no heartbeat mismatch, no crash.
