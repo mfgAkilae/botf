@@ -184,8 +184,18 @@ fix. Commands are in `tools/`.
   still a player delivered its block; the table broadcast runs the leave steps (takeover, order cleanup, order
   re-check) for every player it removes, so each computer runs them exactly once. With the fix all four continue
   and stay in sync for three turns. The plain drop tests (`tools/droptest.sh`, `tools/ytest.sh`) stay in sync.
-  Still open (N5): the leave steps run when the notice arrives, not at a fixed point of the turn; in the test all
-  computers were waiting at the same barrier, which makes that point the same.
+  The point at which the leave steps run is fixed by Fix LV (below).
+- **N5 (leave at different points of the turn): fixed (Fix LV).** A leave notice arrives tens of seconds apart on
+  the computers. Now a computer takes the leave steps at once only if it will calculate the current turn without
+  the leaver anyway (busy is not 1 and his orders for this turn have not arrived); otherwise it marks the player
+  "gone": he stays in the player mask, so the calculation treats him the same on every computer, the waits inside
+  the calculation (battle start, combat rounds, battle results) wait only for the remaining players, and the
+  leave steps run when the calculation ends. The table broadcast leaves gone players out of its mask (in a running
+  game it sends the player mask, and every computer broadcasts after its own notice), and a leave handled in the
+  message pumps right before a calculation no longer starts a nested calculation. `tools/r5leave.sh`: E leaves in
+  the middle of the battle B vs E (in sync three turns); `KILL=D`: D, not in the battle, leaves while B and E fight
+  (two more turns with battles in sync, D's fleets now fight as computer empire); `tools/droptest.sh` and
+  `tools/ytest.sh` in sync.
 - **Hall of Fame after END TURN (community report): not reproduced.** `tools/hoftest.sh`: B ends the turn and
   opens the Hall of Fame, the others end the turn; in sync with and without the fixes (test bed, windows active).
   SAVE GAME is disabled after END TURN, for the host too.
