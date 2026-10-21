@@ -7,9 +7,38 @@ fixed officially.
 
 This repository contains a binary patch for `trek.exe` (version 2.0.4 vanilla, all 8 language and
 resolution variants, and the mods shipped with "BOTF Most Active 2.0.4"), the tools used to reverse
-engineer the game, and a multi-instance test bed that plays real 5-player games automatically.
+engineer the game, and a multi-instance test bed that plays real 5-player games automatically. The patch
+removes the causes of the sync errors we found and, since v2.1, **repairs a sync error automatically** instead
+of ending the game.
 
 No game files are included. You need your own copy of the game.
+
+## New in v2.1: a sync error no longer ends the game
+
+Until now a single sync error was the end of a multiplayer game, often after many hours. With v2.1 the game
+**repairs itself**:
+
+1. After every turn each computer compares its game with the others (the game's own checksums).
+2. If they differ, the **host saves the game and sends it** to every player, the same way the game sends a
+   saved game in the lobby.
+3. **Every player loads it** without leaving the session. A "please wait" box shows for a few seconds; then all
+   machines hold the host's game and play on.
+
+What you lose: the input of the current turn (everybody plays that turn again from the host's state). What you
+keep: the game.
+
+- **Every player needs v2.1.** Before the transfer the host asks every player; if one does not answer (an older
+  version), nothing is loaded and the old error message appears, as before.
+- **Tested** in the five-player test bed: a desync caused on purpose is found and repaired, and afterwards every
+  machine holds the same state as the host (full state compare) and further turns stay in sync. Under play with
+  automatic players (wars, fleets, building, diplomacy, manual tactical combat) a new desync every four turns
+  was repaired each time, in a small new game and in a late war game (turn 520, five empires); it takes from
+  under a minute up to the end of the turn calculation of the slowest machine. Also tested: a player who drops
+  out while sending his orders, the host leaving the game (the new host repairs), a player with an older
+  version (nothing is loaded, the old error message appears), the host quitting while it waits for the answers.
+- It is a safety net, not a replacement for the fixes below: they remove the known causes; the repair catches
+  what is left (for example a player who drops out exactly while sending his orders, or a rule-changing mod).
+- How it works in detail: [docs/resync_design_draft.md](docs/resync_design_draft.md) (section 7.3).
 
 ## Installation
 
@@ -19,7 +48,8 @@ No game files are included. You need your own copy of the game.
    Already on v1.0.0? Just run the new version; it rebuilds `trek.exe` from the backup.
    Without the exe: `python release/botf_mpfix.py "C:\Games\BotF\trek.exe"` (Python 3, no
    dependencies). `--check` shows the status, `--restore` brings back the original.
-   Alternatively apply `release/BotF_MP_fix.patch` with the community patcher / Ultimate Editor.
+   Alternatively apply `release/BotF_MP_fix.patch` with the community patcher / Ultimate Editor; that file
+   cannot add a section to `trek.exe` and therefore has everything except the automatic resync (RY).
    All 143 `trek.exe` variants of "BOTF Most Active 2.0.4" (vanilla EN/DE, all resolutions, and the
    mods ECM, ECMS, BOP, MUM, FAW, AAM, FMPM, UCW, UM5, UDM, GALM, PLUS) are supported.
 3. All players should use the patch. Unpatched players can still connect (the network message format
@@ -72,6 +102,7 @@ session. Player reports of the late-game bug almost always show the same signatu
 | **HB** | **Checksums that arrive while waiting are never compared.** A slower player's checksums that arrived after this player ended his next turn were stored and wiped; a desync was only seen on the slower machines. | Reproduced (`tools/hbtest.sh`, breakpoint trace on the compare). | Compared at once while waiting (the state is still that of the end of the calculation). |
 | MI | **Invading a system whose native minor race is extinct** wrote through a null pointer: crash on every machine. | Static code review. | The write is skipped. |
 | MS | **The empire morale average summed in 16 bits**: from about 164 systems at high morale the assert in morale.c line 102 ended the game on every machine. | Static code review. | 32-bit sum (vanilla only; the mods of the installer already have their own sum, the patcher leaves MS out there). |
+| **RY** | **A desync ends the game.** Every machine compares the others' checksums after each turn; any difference shows "A synchronization error has occurred" and the game is over, however small the cause. | Every desync of this project; for example a player whose last orders reach only some machines (`tools/porders.sh`). | **Automatic resync**: the mismatch is detected, the host sends its game (the stock save-file message) and every player loads it without leaving the session; the game goes on from the host's state of that turn. Needs every remaining player to have RY: the host asks first and falls back to the old error message when someone does not answer. `docs/resync_design_draft.md` section 7.3. |
 | MV | **The patch's code area is read by the movie playback thread**: it copies that zero block into a local structure, which started with code bytes since v1.0. | Found by a reviewer of the patch. | The thread zero-fills the structure itself. |
 | **X** | **Wormholes.** The exit position of a fleet that flies through a wormhole was converted with the local galaxy-map view (scroll and zoom of that player's screen), so the fleet could come out in different sectors on different machines. | Static code review; regression only (no wormhole in our test galaxies). | The conversion gets a fixed view, the same on every machine. |
 | W3 | The ship name list belongs to the program and was not reset on load (same class as W). | Static code review; regression only. | Reset when a game is loaded. |
@@ -173,11 +204,11 @@ sends its own state to everybody). A save made after the problem does not show t
   host (DirectPlay makes another machine the host), two players at once and a player inside the turn calculation
   stay in sync (`tools/droplive.sh`). Not fixed: a leaver whose last orders reach only some machines (he drops in
   the middle of sending) is calculated with them on those machines only. Reproduced (`tools/porders.sh`): a
-  heartbeat mismatch from the next turn on; the automatic resync (test build, `--spike`) heals it. x87 `FSIN/FCOS` in combat geometry might differ between Intel and AMD processors; task-force
+  heartbeat mismatch from the next turn on; the automatic resync (RY) heals it. x87 `FSIN/FCOS` in combat geometry might differ between Intel and AMD processors; task-force
   ids are 16 bit (needs about 32,000 created task forces).
-- Automatic resync (a desync heals itself: the host sends its game state and every client loads it) works in
-  test builds (`tools/spike_resync.py`, `docs/resync_design_draft.md` section 7.2) but is not part of the
-  release yet: it needs about 5 KB of code in a new section of `trek.exe`.
+- The automatic resync (RY) loads the host's game: input of the current turn is lost for everybody, and a desync
+  that the host itself caused is kept. It does not run while a player is missing the fix (stock error instead) and
+  is not in the community `.patch` file.
 - A manual save made during a turn does not contain that turn's orders (orders are only saved at turn
   boundaries); the autosave is not affected.
 - About thirty focused code reviews with three different models (tactical combat, session/lifecycle, turn
@@ -194,7 +225,8 @@ sends its own state to everybody). A save made after the problem does not show t
 ## Repository layout
 
 - `release/` – standalone patcher and community `.patch` file (generated by `tools/make_release.py`).
-- `tools/netfix.py` – the patch itself (assembly, applied with `tools/pe.py` / Keystone).
+- `tools/netfix.py` – the patch itself (assembly, applied with `tools/pe.py` / Keystone); `tools/resync.py` – the
+  automatic resync (Fix RY), added by `netfix.apply` in its own section; `tools/ryregress.sh` – its test scenarios.
 - `tools/` – test bed and analysis tools: instance harness (`harness.py`), game setup
   (`newgame5.sh`, `resume5.sh`, `resume_n.sh`), player agents and observer, input replay
   (`replay.py`), debugger-based tracers (`ktrace.py` with `HEAPTRACE=1` / `HEAPTID=1` for heap checks,
@@ -220,7 +252,10 @@ The whole patch is the Python script `tools/netfix.py`: every fix is written the
 
 The new code goes into a block of the code section that is zero in every variant (0x516e60..0x517e00). That block
 is the zero initialiser the movie playback thread copies into a local structure; Fix MV makes the thread fill the
-structure with zeros itself, so the block is free for the patch.
+structure with zeros itself, so the block is free for the patch. The automatic resync (`tools/resync.py`) does not
+fit there: `netfix.apply` adds a section `.mpfix` (6 KB at 0x69e000, the same address in all 143 variants, so the
+code needs no relocation). `release/botf_mpfix.py` carries that section compressed and appends it; it checks the
+file layout first and refuses a `trek.exe` whose sections end elsewhere.
 
 ## Reproduce the results yourself
 

@@ -35,7 +35,7 @@ import json, os, struct, sys, time, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness as H
 from autoturn import snapshot, compare, force_active, Dialogs, handle_dialogs
-import spike_resync as S
+import resync as S
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 TEST = os.environ.get('BOTF_TEST') or next((d for d in (os.path.join(ROOT, 'test'), os.path.join(ROOT, '..', 'test'))
@@ -119,13 +119,17 @@ def fmt(e):
 
 
 def owner_records(r):
-    """a compare() line that differs only in system +0x80..+0xa7: the production records have an owner and a
-    non-owner form between turns (outside every CRC); after a transfer each owner holds its turn-start form"""
-    if not r.startswith('sys['):
-        return False
+    """a compare() line that differs only in owner-local data outside every CRC:
+    - system +0x80..+0xa7: the production records have an owner and a non-owner form between turns; after a
+      transfer each owner holds its turn-start form;
+    - empire +0xe6..+0xeb: the terms of the owner's own diplomatic proposal draft (duration 25 or 30 turns on the
+      owner, 0 elsewhere); seen on the owner in every long run with diplomacy, also without any transfer (dip38)"""
     import re
+    lim = {'sys[': (0x80, 0xa8), 'emp[': (0xe6, 0xec)}.get(r[:4])
+    if not lim:
+        return False
     rng = [(int(a, 16), int(b, 16)) for a, b in re.findall(r'(0x[0-9a-f]+)-(0x[0-9a-f]+) a=', r)]
-    return bool(rng) and all(0x80 <= a and b < 0xa8 for a, b in rng)
+    return bool(rng) and all(lim[0] <= a and b < lim[1] for a, b in rng)
 
 
 def status():
@@ -448,7 +452,7 @@ def auto(argv):
     miss = [k for k in AUTO if k not in F]
     if miss:
         print('%s has no field %s: not a build with the automatic resync (build it with build_test.py --fix --spike '
-              'and the current spike_resync.py, SPIKE_JSON=<that exe>.json)' % (JSON, ', '.join(miss)))
+              'and the current resync.py, SPIKE_JSON=<that exe>.json)' % (JSON, ', '.join(miss)))
         return
     host = argv[argv.index('--host') + 1] if '--host' in argv else 'A'
     clients = [x for x in NAMES if x != host]
@@ -514,7 +518,8 @@ def auto(argv):
             print('IDENTITY CHANGED on', x, {k: (before[x][k], after[x][k]) for k in before[x] if before[x][k] != after[x][k]})
     res['ids and session unchanged'] = before == after and all(after[x]['dplay'] for x in NAMES)
     res['one apply per client'] = all(d(x, 'cnt_applies') == 1 for x in clients)
-    res['applied on every client'] = all(x in applies for x in clients)
+    # a release build has no log ring: there the result of the last transfer (1 = applied) is the evidence
+    res['applied on every client'] = all(x in applies if 'logring' in F else f(x, 'last_result') == 1 for x in clients)
     if applies:
         res['mask 597504 == loaded mask'] = all(((e[4] >> 16) & 0xff) == (e[4] >> 24) for e in applies.values())
         vals = {x: (e[2], e[3], e[4] & 0xffff, e[5]) for x, e in applies.items()}

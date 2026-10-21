@@ -22,21 +22,27 @@ Contents (details in README.md of https://github.com/mfgAkilae/botf):
   W/W2/W3 (counters reset on load), O, P, Q, G, CA, Z, IE (intel orders on elimination), S (heap lock),
   MV (the movie thread no longer reads the code area).
 """
-import os, shutil, sys
+import base64, os, shutil, struct, sys, zlib
 
 # (file offset, original bytes, patched bytes, group): group 0 is required, group 1 (Fix MS) is applied only where
 # all of its original bytes are found (the mods of the installer already changed that code)
 PATCH = [
     (0x000ed7, '800d6c2b5a0004', 'e9145d11009090', 0),
+    (0x001601, '5656565653', 'e95acf2900', 0),
     (0x001632, '2eff15ec455700', 'e8494e11009090', 0),
     (0x0017ca, '2eff15ec455700', 'e8b14c11009090', 0),
+    (0x0018d8, '3b35d4285a00', 'e913c4290090', 0),
     (0x001909, '2eff15ec455700', 'e8724b11009090', 0),
+    (0x037bfb, '83f8017405', 'e930602600', 0),
+    (0x037dc0, 'e8fb3f0e', 'e98b5e26', 0),
     (0x03a3ed, 'b5', '92', 0),
+    (0x03c4f3, '79050d00e884ca0d', '19172600e8241726', 0),
     (0x044dcd, '89c8e81cbd0100', 'e94e180d009090', 0),
     (0x044e28, '83be8000000003740c', 'e9031e0d0090909090', 0),
     (0x044e4e, '7ede01', 'fe1d0d', 0),
     (0x044eb5, '89c8e8b4810000', 'e916170d009090', 0),
     (0x0498ea, '89eb89c80fbf16e82a93010089c8e89fd60000', 'e931ce0c009090909090909090909090909090', 0),
+    (0x04c241, 'a174fd5800e855e90c00', 'e93a1a25009090909090', 0),
     (0x04f438, '8915e4fd5800', 'e813730c0090', 0),
     (0x0552f7, '8b9970485b0085db0f85f6000000', 'e9e4170c00909090909090909090', 0),
     (0x0555dd, '88d05a59c3', 'e9ae130c00', 0),
@@ -77,11 +83,12 @@ PATCH = [
     (0x0772a7, '83b8fc0100000a0f8578fdffff', 'e904f609009090909090909090', 0),
     (0x07ef6e, 'bb01000000', '89f3909090', 0),
     (0x07efa6, '1a7bfdff', 'c67c0900', 0),
-    (0x0b936a, 'c7055c30590001000000', 'e981d505009090909090', 0),
+    (0x0b936a, 'c7055c30590001000000', 'e9d14a1e009090909090', 0),
     (0x0bbf90, '515253a1b4325900', 'e91bac0500909090', 0),
     (0x0ccfdc, 'a3682b5a', 'e96f9b04', 0),
     (0x0ccff1, 'a2462b5a', 'e98a9b04', 0),
     (0x0d1d2b, '51feffff', '714f0400', 0),
+    (0x0e8d0e, 'bd5c1a58', 'e98d4f1b', 0),
     (0x0f6a47, '8b35a85d5900', 'e9a4ff010090', 0),
     (0x0f6a82, '8a4a4c8d04cd00000000', 'e9d9ff01009090909090', 0),
     (0x0f6f4d, '31d28a534c', 'e92efb0100', 0),
@@ -89,11 +96,17 @@ PATCH = [
     (0x0fe2a0, '5351565755', 'e91b8a0100', 0),
     (0x0fe390, '5351525657', 'e94b890100', 0),
     (0x0fe4a0, '515789d70fbfca', 'e95b8801009090', 0),
-    (0x109b09, '668904248b0424', 'e992c700009090', 0),
+    (0x109aef, 'e80c5f00', 'e96c3d19', 0),
+    (0x109b09, '668904248b0424', 'e9523c19009090', 0),
     (0x10cc68, 'b00188d1d2e0f6d0', 'e983a20000909090', 0),
     (0x10cca5, 'c7a8f4ff', '87a20000', 0),
     (0x10cd02, '5a24f6ff', 'baa00000', 0),
+    (0x10d101, 'c9feffff', 'ab0b1900', 0),
+    (0x10d176, 'e815000000e8f0fcffff', 'e9f5091900e8700a1900', 0),
+    (0x10f402, '83bdc0cf5c00ff', 'e909e918009090', 0),
+    (0x10f4c9, 'b8bd0400', 'e912e918', 0),
     (0x10f68b, '000f85', '010f84', 0),
+    (0x10f71f, 'b8bd0400', 'e9ece618', 0),
     (0x1101d2, 'a0282b5a', 'e8896d00', 0),
     (0x110281, '8a842408010000a2282b5a00', 'e9ba6b000090909090909090', 0),
     (0x116260, '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000', '6031f63b35e496680073248b04f5f4966800508b04f5f0966800506800040000ff354c075a00ff152c46570046ebd4c705e49668', 0),
@@ -168,10 +181,82 @@ PATCH = [
 ]
 SLEEP_OFF = 0x14d5ce          # push 0x0a -> push 0x00 (identical to the community packet.patch)
 CAVE = (0x116260, 0x117200)       # must be zero before patching
+ORIG_SIZE = 1781248               # every trek.exe of the installer
+# Fix RY (automatic resync) lives in a new section appended to the file; its contents are zlib + base64 below.
+SECTION = {'name': '.mpfix', 'rva': 0x29e000, 'vsize': 0x1800, 'rsize': 0x1800, 'chars': 0xe0000060,
+    'data': (
+        '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')}
+
+
+def sections(d):
+    """(name, virtual size, virtual address, raw size, raw offset) of every section, PE header offset, table offset"""
+    e = struct.unpack_from('<I', d, 0x3c)[0]
+    n = struct.unpack_from('<H', d, e + 6)[0]
+    st = e + 24 + struct.unpack_from('<H', d, e + 20)[0]
+    secs = [(bytes(d[st + 40 * i:st + 40 * i + 8]).rstrip(b'\0').decode('latin1'),) + struct.unpack_from('<IIII', d, st + 40 * i + 8)
+            for i in range(n)]
+    return secs, e, st
+
+
+def section_blob():
+    blob = zlib.decompress(base64.b64decode(SECTION['data']))
+    assert len(blob) == SECTION['rsize']
+    return blob
+
+
+def add_section(d):
+    """append the resync section; the layout is the same in every trek.exe of the installer (checked here)"""
+    secs, e, st = sections(d)
+    opt = e + 24
+    sa = struct.unpack_from('<I', d, opt + 32)[0]
+    end = max(s[2] + max(s[1], s[3]) for s in secs)
+    rva = (end + sa - 1) // sa * sa
+    sh = st + 40 * len(secs)
+    if (rva != SECTION['rva'] or len(d) != ORIG_SIZE or sh + 40 > struct.unpack_from('<I', d, opt + 60)[0]
+            or any(d[sh:sh + 40])):
+        raise ValueError('unexpected file layout (sections end at %#x, file size %d)' % (rva, len(d)))
+    d[sh:sh + 40] = (SECTION['name'].encode().ljust(8, b'\0') +
+                     struct.pack('<IIIIIIHHI', SECTION['vsize'], rva, SECTION['rsize'], len(d), 0, 0, 0, 0, SECTION['chars']))
+    struct.pack_into('<H', d, e + 6, len(secs) + 1)
+    struct.pack_into('<I', d, opt + 56, (rva + SECTION['vsize'] + sa - 1) // sa * sa)
+    d.extend(section_blob())
 
 
 def status(d):
-    if len(d) != 1781248 or d[:2] != b'MZ':
+    if d[:2] != b'MZ' or len(d) not in (ORIG_SIZE, ORIG_SIZE + SECTION['rsize']):
         return 'unknown', 'Not a known trek.exe (size %d).' % len(d)
     req = [(o, a, b) for o, a, b, g in PATCH if g == 0]
     opt = [(o, a, b) for o, a, b, g in PATCH if g == 1]
@@ -179,9 +264,10 @@ def status(d):
     is_b = lambda e: d[e[0]:e[0] + len(e[2]) // 2] == bytes.fromhex(e[2])
     orig = all(is_a(e) for e in req)
     done = all(is_b(e) for e in req) and (all(is_b(e) for e in opt) or not all(is_a(e) for e in opt))
-    if done:
+    has_sec = any(s[0] == SECTION['name'] for s in sections(d)[0])
+    if done and has_sec and len(d) == ORIG_SIZE + SECTION['rsize'] and d[ORIG_SIZE:] == section_blob():
         return 'patched', 'The multiplayer fix is already installed.'
-    if orig and not any(d[CAVE[0]:CAVE[1]]):
+    if orig and not has_sec and len(d) == ORIG_SIZE and not any(d[CAVE[0]:CAVE[1]]):
         return 'original', 'Unmodified, compatible trek.exe.'
     bad = [hex(e[0]) for e in req if not is_a(e)]
     return 'incompatible', 'Unexpected bytes at offsets: ' + ', '.join(bad[:8])
@@ -230,6 +316,11 @@ def main():
         print('Fix MS left out: this trek.exe already has its own morale sum (mod).')
     if d[SLEEP_OFF] == 0x0a and d[SLEEP_OFF - 1] == 0x6a:
         d[SLEEP_OFF] = 0x00
+    try:
+        add_section(d)
+    except ValueError as ex:
+        print('ERROR: cannot add the resync section:', ex)
+        return 1
     open(path, 'wb').write(d)
     st2, _ = status(d)
     print('Done.' if st2 == 'patched' else 'ERROR while patching!')

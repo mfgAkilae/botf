@@ -73,14 +73,32 @@ def spike_wait():
     t0 = time.time()
     while transfer_running() and not os.path.exists(STOP):
         time.sleep(0.2)
+        answer_blame(t0)
     SPIKE_TURN = turn()
     log('waited %.1fs for a resync transfer, now turn %d' % (time.time() - t0, SPIKE_TURN))
 
 
+BLAME_CHECK = [0.0]
+
+
+def answer_blame(since):
+    """While input is held for a transfer, a machine still in its turn calculation can sit in the intel blame
+    dialog (it waits for its owner); a held agent never answered it, so that machine could not finish the
+    calculation and load the transfer (ry3live). Answer it as a player would; checked every 5 s."""
+    if time.time() - since < 15 or time.time() - BLAME_CHECK[0] < 5 or busy() != 1:
+        return
+    BLAME_CHECK[0] = time.time()
+    if in_blame_dialog():
+        log('blame dialog while held for a transfer: first choice')
+        H.click(H.main_window(PID), 300, 369, pid=PID)
+
+
 def nap(t):
     time.sleep(max(0.05, t * SPEED))
+    t0 = time.time()
     while os.path.exists(PAUSE) and not os.path.exists(STOP):   # resync spike: no input while a transfer runs
         time.sleep(0.2)
+        answer_blame(t0)
         spike_wait()
     spike_wait()
 LOG = open(os.path.join(out, 'player_%s.log' % INST), 'a')
@@ -100,31 +118,33 @@ def log(*a):
 
 GT = [(320, 437), (430, 449), (528, 437), (605, 449), (697, 437)]   # galaxy-map tabs: overlay, economic, events, military, map
 LAYOUT = {   # per race UI (game coordinates 800x600); orders=None: fleets only move, no mission screen
-    'A': dict(dip=dict(races=(80, 474, 16), propose=(125, 378), acts=[(400, 27), (400, 54), (400, 81), (630, 27), (630, 54), (630, 81)], send=(688, 378), plus=(505, 228)),
+    'A': dict(ans=dict(event=(125, 405), accept=(325, 400), reject=(325, 427)), dip=dict(races=(80, 474, 16), propose=(125, 378), acts=[(400, 27), (400, 54), (400, 81), (630, 27), (630, 54), (630, 81)], send=(688, 378), plus=(505, 228)),
               qhead=(638, 270), turn=(163, 33), home=(540, 258), tfx=120, tfy=(300, 345, 385), orders=(100, 568),
               missions=[(285, 258), (285, 330), (285, 372), (430, 330), (430, 372), (285, 397)],
               tabs={'build': (94, 150), 'ships': (94, 178), 'prod': (94, 94)}, buy=(640, 198),
               arrows=((370, 568), (100, 170, 238, 308, 376)), auto=(640, 240), systems=(320, 20),
               syslist=(300, 111, 18), buildlist=113, mapbtn=((610, 304), (625, 328)), gtabs=GT),
-    'B': dict(qhead=(638, 280), turn=(110, 22), home=(522, 250), tfx=140, tfy=(305, 345, 385), orders=(110, 563),
+    'B': dict(ans=dict(event=(116, 398), accept=(280, 400), reject=(400, 400)),
+              dip=dict(races=(110, 457, 16), propose=(110, 371), acts=[(395, 18), (395, 47), (395, 76), (600, 18), (600, 47), (600, 76)], send=(440, 401), plus=(485, 233)),
+              qhead=(638, 280), turn=(110, 22), home=(522, 250), tfx=140, tfy=(305, 345, 385), orders=(110, 563),
               missions=[(545, 268), (550, 294), (390, 369), (370, 394), (340, 419), (330, 444), (310, 519)],
               tabs={'build': (90, 143), 'ships': (90, 171), 'prod': (90, 87)}, buy=(650, 207),
               arrows=((375, 582), (104, 175, 246, 317, 388)), auto=(668, 255), systems=(310, 22),
               syslist=(300, 111, 18), buildlist=113, mapbtn=((660, 356), (660, 380)),
               gtabs=[(320, 437), (430, 449), (528, 437), (600, 440), (697, 437)]),
-    'C': dict(dip=dict(races=(95, 473, 16), propose=(130, 372), acts=[(440, 18), (440, 49), (440, 80), (585, 18), (585, 49), (585, 80)], send=(515, 426), plus=(480, 178)),
+    'C': dict(ans=dict(event=(90, 400), accept=(600, 424), reject=(736, 424)), dip=dict(races=(95, 473, 16), propose=(130, 372), acts=[(440, 18), (440, 49), (440, 80), (585, 18), (585, 49), (585, 80)], send=(515, 426), plus=(480, 178)),
               qhead=(640, 272), turn=(130, 22), home=(560, 258), tfx=140, tfy=(277, 317, 357), orders=(110, 563), missions=[],
               menu=(280, 327, 20, 12), mapbtn=((627, 362), (627, 384)),
               tabs={'build': (90, 150), 'ships': (90, 178), 'prod': (90, 91)}, buy=(650, 195),
               arrows=((375, 578), (101, 170, 239, 308, 376)), auto=(715, 238), systems=(300, 18),
               syslist=(290, 85, 17), buildlist=87, gtabs=[(310, 444), (415, 444), (510, 444), (605, 444), (700, 444)]),
-    'D': dict(qhead=(648, 262), turn=(150, 22), home=(540, 125), tfx=140, tfy=(272, 312, 352), orders=(140, 568),
+    'D': dict(ans=dict(event=(115, 401), accept=(312, 420), reject=(420, 420)), qhead=(648, 262), turn=(150, 22), home=(540, 125), tfx=140, tfy=(272, 312, 352), orders=(140, 568),
               missions=[(370, 369), (370, 391), (370, 413), (370, 436), (370, 459), (370, 481),
                         (570, 369), (570, 391), (570, 413), (570, 436), (570, 459)], noscrap=[(570, 413)],
               tabs={'build': (85, 149), 'ships': (85, 178), 'prod': (150, 91)}, buy=(655, 195),
               arrows=((358, 573), (101, 173, 243, 320, 390)), auto=(740, 235), systems=(340, 18),
               syslist=(310, 98, 17), buildlist=82, gtabs=[(295, 437), (400, 444), (510, 447), (615, 444), (720, 437)]),
-    'E': dict(dip=dict(races=(85, 470, 16), propose=(115, 372), acts=[(365, 20), (365, 48), (365, 76), (645, 20), (645, 48), (645, 76)], send=(440, 407), plus=(538, 173)),
+    'E': dict(ans=dict(event=(110, 400), accept=(560, 406), reject=(510, 431)), dip=dict(races=(85, 470, 16), propose=(115, 372), acts=[(365, 20), (365, 48), (365, 76), (645, 20), (645, 48), (645, 76)], send=(440, 407), plus=(538, 173)),
               qhead=(640, 272), turn=(180, 22), home=(540, 255), tfx=140, tfy=(260, 300, 340), orders=(110, 563), missions=[],
               menu=(265, 306, 19, 11), mapbtn=((712, 365), (712, 385)), noscrap=[(265, 458)],
               tabs={'build': (115, 160), 'ships': (115, 188), 'prod': (130, 102)}, buy=(690, 196),
@@ -352,12 +372,20 @@ def production():
 
 
 def diplomacy():
-    # F5 diplomacy: pick a known race and propose something (friendship / peace, request, gift, affiliation /
-    # alliance, membership / war pact, now and then declare war), add credits to gifts, SEND
+    # F5 diplomacy: answer an incoming proposal (EVENT tab, ACCEPT or REJECT), then pick a known race and propose
+    # something (friendship / peace, request, gift, affiliation / alliance, membership / war pact, now and then
+    # declare war), add credits to gifts, SEND
+    acts = []
+    a = L.get('ans')
+    if a and rnd.random() < 0.7:
+        key(0x70); nap(0.4); key(0x74); nap(1.2)
+        click(a['event'], 0.8)
+        yes = rnd.random() < 0.6
+        click(a['accept'] if yes else a['reject'], 0.9); acts.append('ACCEPT' if yes else 'REJECT')
+        key(0x70); nap(0.4)
     d = L.get('dip')
     if not d:
-        return []
-    acts = []
+        return acts
     key(0x70); nap(0.4); key(0x74); nap(1.2)
     x, y0, dy = d['races']
     k = rnd.randint(0, 3); click((x, y0 + dy * k), 0.6); acts.append('race%d' % k)
@@ -639,7 +667,7 @@ def main():
                 acts.append('TURN(again)'); idle_same = 0
             if busy() == -1 and WAITACT and rnd.random() < 0.5:
                 # review finding N2: are the order-changing screens still live after END TURN?
-                f = rnd.choice([fleets, fleets, production, diplomacy] if 'dip' in L else [fleets, fleets, production])
+                f = rnd.choice([fleets, fleets, production, diplomacy] if 'dip' in L or 'ans' in L else [fleets, fleets, production])
                 before = own_state()
                 done = f()
                 if busy() == -1:

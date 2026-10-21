@@ -479,11 +479,65 @@ Still open: the per-sender fence and FREEZE/RELEASE of the full protocol (sectio
 ended the next turn may not compare a slow client's late 0x71 (the clients then fall back after 120 s); the
 release patcher needs a new PE section for this code (about 5 KB).
 
+### 7.3 Release (Fix RY, v2.1.0)
+
+The automatic path of 7.2 is part of the release patch (`tools/resync.py`, applied by `netfix.apply`):
+
+- **Section**: `netfix.apply` appends `.mpfix` (code 0x1400, data 0x400 bytes; read/write/execute). In all 143
+  `trek.exe` variants of the installer the sections end at RVA 0x29d000 + 0x1000, so the new section lands at
+  0x69e000 everywhere and the code needs no relocation. `release/botf_mpfix.py` carries the section (zlib, base64),
+  checks the layout (end of the sections, file size, free header slot) and appends it; the community `.patch`
+  file cannot add a section and is generated without RY.
+- **Release vs. test build**: the release has no log ring, no received-message rings, no test messages and no
+  snapshot variant (about 4 KB of code less); `build_test.py --fix --spike` builds the instrumented variant. The
+  data fields keep their names, so `tools/spike.py status/auto` works with both (`<exe>.json`).
+- **Handshake (new)**: a client answers ARM with **ACK** (0x8b, 4 bytes: epoch). The host sends 0x89 and the
+  file only when every remaining human player answered (player mask without the local empire and without players
+  marked gone by Fix LV). Without all answers after 30 s it broadcasts **CANCEL** (0x8c: epoch); every machine ends
+  the transfer without a load and lets its next mismatch show the stock error (`sp_fallback`). This keeps a game
+  with a player who has an older patch (or none) where it was: such a player ignores 0x8a..0x8c (ids above 0x89
+  are not handled by the stock dispatcher), shows the stock error himself, and the others do not load a game he
+  never gets.
+- **Transfer identity**: a client accepts an ARM unless it carries the epoch *and* the sender of the last one it
+  took. After a host migration the new host counts on from its own epoch; the sender alone already makes its ARM
+  new for the clients.
+- **Session boundary**: outside a multiplayer game (`[0x5a2924]` or `[0x5a2920]` is 0: menus, lobby) and with no
+  transfer running, the per-game state (fallback, detection, epoch, sender, quiet window) is cleared, so a later
+  game in the same process starts fresh (found by the final review).
+- **Aborts**: a transfer that has received nothing yet (PREPARE, or ARMED with an empty queue) ends without a load
+  as soon as the multiplayer game is gone on that machine (the teardown clears the player mask, which the host's
+  ACK wait would otherwise take for "everybody answered"; found by the second review round). A client ARMED by an
+  ARM ends without a load when that ARM's sender is no longer in the player table (the host left; the new host
+  starts its own transfer at the next mismatch), otherwise after 300 s.
+
+Tests with the release build (`build_test.py --fix`), all in `tools/ryregress.sh`:
+- `tools/spike.py auto --diverge C:5 --turns 3` from `saves/five_1201_t103`: detected, one transfer, every client
+  applied once, state equal to the host, three more turns in sync.
+- `tools/rymixed.py` (E runs `--noresync`, a divergence on C): E shows the stock error at once; the host gets ACK
+  from B, C and D (mask 0x0e, missing 0x10), sends CANCEL after 30 s; A..D end without a load, `sp_fallback` set.
+- `tools/ryabort.py session`: the host's in-game flag cleared during its ACK wait: abort (F_SESSION), no CANCEL,
+  no load anywhere, session state cleared. `tools/ryabort.py kill`: the host killed during its ACK wait: every
+  client leaves ARMED without a load once the host is gone from the player table (77 s, the DirectPlay leave time).
+- `tools/rymigrate.py`: one transfer with A as host, A killed, DirectPlay makes D the host, a divergence on B: D
+  transfers, every machine applied twice, two more turns in sync.
+- `tools/porders.sh` (a leaver's orders reached only some machines): the mismatch of the next turn is repaired
+  (ACK from B, C, D; E is marked gone), three turns in sync.
+- Under play (`tools/spike_auto_live.sh`, agents with wars, diplomacy and fleets, small galaxy): five injected
+  divergences, five repairs (39–51 s after the injection), no heartbeat mismatch seen by the observer.
+- Late war game (`TACTICAL=1 tools/spike_auto_live.sh ... saves/war17d_t520`, manual tactical combat): every
+  injected divergence repaired (65–102 s: a machine still in its turn calculation, for example in the intel blame
+  dialog, loads after it has finished). A first run had stalled because the test agents held all input during a
+  transfer, also the blame dialog of the turn calculation; they now answer it (`tools/player.py`).
+- Patcher: all 143 variants patched by `botf_mpfix.py` are byte-identical to `netfix.apply`; an upgrade from
+  v2.0.0 rebuilds from the backup; `--restore` gives back the original. The v2.0.0 patcher refuses a v2.1.0 file
+  (unknown size) and leaves it unchanged. The release `trek.exe` (EN 800x600) starts into the main menu with the
+  section mapped at 0x69e000.
+
 ## 8. Open questions
 
 - The terminal helper (§3.6) and the reordered lookup at 0x50a6ef (§3.3) — verify after the spike, before the
   protocol is implemented.
-- New PE section support in the patcher (all variants).
+- New PE section support in the patcher (all variants): done in v2.1.0 (7.3).
 - Exact deadline values: the spike measured 0.3 s per transfer (48–82 KB save) on one computer and 7–10 s with
   40 ms per packet on the host (`--latency 40`); D_loaded (300 s) and D_member (660 s) have ample margin.
 - UI state that refers to objects the load frees or resets: findings A, D and F were found only under play.

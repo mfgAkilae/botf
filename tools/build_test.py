@@ -2,13 +2,15 @@
 usage: build_test.py <in.exe> <out.exe> [--fix] [--nofixs] [--heapstress N] [--latency MS] [--delay74 MS] [--spike]
   --nofixs       with --fix: leave out Fix S (heap pool serialization), for A/B tests
   --heapstress N with --fix: the network receive thread does N malloc/free pairs every 1 ms
-  --fix          apply the multiplayer fix (netfix.py)
+  --fix          apply the multiplayer fix (netfix.py), with the automatic resync (Fix RY, tools/resync.py) in its
+                 own section after the shim section; the resync data addresses go to <out.exe>.json under 'spike'
+  --noresync     with --fix: without Fix RY (as the community .patch file and v2.0.0)
   --latency MS   per-packet sleep in the send loop (emulates a slow link, max 127)
   --delay74 MS   extra delay before the production-queue message 0x74 is sent
   --slowend MS   with --fix: stay BUSY (pumping) for MS after the last turn phase, the others are idle meanwhile
-  --spike        with --fix: the resync spike (spike_resync.py, docs/resync_design_draft.md section 7) in the
-                 enlarged shim section; its data addresses go to <out.exe>.json under 'spike'
-  --spike-nopump the spike without the pump override at 0x4024d8 (negative control for inactive windows)
+  --spike        with --fix: the instrumented resync (log ring, received-message rings, test messages for
+                 tools/spike.py ordertest)
+  --spike-nopump the resync without the pump override at 0x4024d8 (negative control for inactive windows)
   --spike-snapshot  owner production records from a turn-start snapshot (and the host's turn-start save) instead
                  of the stock restart FUN_0043a0a0 after the load (finding E, variants 3 and 4)
 Writes <out.exe>.json with the address of the fake cursor block.
@@ -45,11 +47,10 @@ p.patch(0x40232e, '750c', 'eb0c')
 p.patch(0x401cca, '85d2', 'eb64')
 
 # 2) cursor shim (first new section -> fixed address 0x69e000)
-spike = '--spike' in sys.argv or '--spike-nopump' in sys.argv
+spike = '--spike' in sys.argv or '--spike-nopump' in sys.argv or '--spike-snapshot' in sys.argv
 if spike:
-    import spike_resync
-    assert '--fix' in sys.argv, '--spike needs --fix (it chains into the Fix B and Fix K caves)'
-sec = p.add_section('.tstshim', spike_resync.SECTION_SIZE if spike else 0x200, 0xE0000060)
+    assert '--fix' in sys.argv and '--noresync' not in sys.argv, '--spike needs --fix with the resync'
+sec = p.add_section('.tstshim', 0x200, 0xE0000060)
 blk = sec
 stub = sec + 0x20
 IAT_GETCURSORPOS = 0x574600
@@ -72,14 +73,14 @@ for site in (0x515d45, 0x515f8e, 0x516189):
 
 if '--fix' in sys.argv:
     import netfix
-    info = netfix.apply(p)
-    print('netfix', {k: hex(v) if isinstance(v, int) else v for k, v in info.items()})
+    info = netfix.apply(p, with_resync='--noresync' not in sys.argv, resync_debug=spike,
+                        pump_override='--spike-nopump' not in sys.argv,
+                        owner_mode='snapshot' if '--spike-snapshot' in sys.argv else 'restart')
+    print('netfix', {k: hex(v) if isinstance(v, int) else '' for k, v in info.items()})
 
-spike_info = None
-if spike:
-    spike_info = spike_resync.apply(p, sec, info, pump_override='--spike-nopump' not in sys.argv,
-                                    owner_mode='snapshot' if '--spike-snapshot' in sys.argv else 'restart')
-    print('spike code', {k: hex(v) for k, v in spike_info['code'].items()})
+spike_info = info.get('resync') if '--fix' in sys.argv else None
+if spike_info:
+    print('resync section %#x code end %#x' % (info['section'], spike_info['code']['code_end']))
 
 if latency is not None:
     assert 0 <= latency <= 127

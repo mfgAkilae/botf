@@ -3,7 +3,7 @@
   release/BotF_MP_fix.patch  patch file in the community 'bof patcher' / UE format
   release/vanilla/*.exe              patched vanilla trek.exe (all 8 installer variants)
 """
-import glob, os, sys, hashlib, shutil
+import base64, glob, os, sys, hashlib, shutil, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pe import PE
 import netfix
@@ -31,12 +31,27 @@ def diff_runs(a, b):
     return [(s, bytes(a[s:e + 1]), bytes(b[s:e + 1])) for s, e in runs]
 
 
-def main():
-    os.makedirs(os.path.join(REL, 'vanilla'), exist_ok=True)
+def build(with_resync):
+    """patch trek,1.exe; returns the patched PE, netfix info, byte patches (core, sleep) and the group function"""
     ref = PE(os.path.join(SRC, 'trek,1.exe'))
     patched = PE(os.path.join(SRC, 'trek,1.exe'))
-    info = netfix.apply(patched)
-    entries = diff_runs(ref.data, patched.data)
+    info = netfix.apply(patched, with_resync=with_resync)
+    hdr_size = ref.info()['size_of_headers']
+    entries = diff_runs(ref.data, patched.data)          # over the original length; the new section is appended
+    hdr = [e for e in entries if e[0] < hdr_size]
+    entries = [e for e in entries if e[0] >= hdr_size]
+    if with_resync:
+        # only the new section's table entry, NumberOfSections and SizeOfImage: the patcher writes them itself
+        name, rva, vsize, raw, rsize, chars, sh = patched.sections[-1]
+        e = ref._hdr()[0]
+        allowed = set(range(sh, sh + 40)) | {e + 6, e + 7} | set(range(e + 24 + 56, e + 24 + 60))
+        assert all(set(range(o, o + len(a))) <= allowed for o, a, b in hdr), hdr
+        assert (name, rva, raw) == ('.mpfix', 0x29e000, len(ref.data)), (name, hex(rva), raw)
+        sec = dict(name=name, rva=rva, vsize=vsize, rsize=rsize, chars=chars,
+                   data=bytes(patched.data[raw:raw + rsize]))
+    else:
+        assert not hdr and len(patched.data) == len(ref.data)
+        sec = None
     sleep_off = ref.va2off(0x54e1ce)
     core = [e for e in entries if not (e[0] <= sleep_off < e[0] + len(e[1]))]
     sleep = [e for e in entries if e[0] <= sleep_off < e[0] + len(e[1])]
@@ -45,12 +60,20 @@ def main():
     opt = [(ref.va2off(va), n) for va, n in info.get('optional', [])]
     group = lambda e: 1 if any(e[0] < o + n and o < e[0] + len(e[1]) for o, n in opt) else 0
     assert sum(group(e) for e in core) == len(opt), 'an optional site was merged with another change'
+    return info, core, sleep, group, sec
+
+
+def main():
+    os.makedirs(os.path.join(REL, 'vanilla'), exist_ok=True)
+    # the community .patch file cannot add a section: it is made without Fix RY (whose hooks jump into the section)
+    info_p, core_p, _, group_p, _ = build(False)
+    info, core, sleep, group, sec = build(True)
     code_end = info['code_end']
 
     # ---- community .patch file -----------------------------------------------------------
     lines = [
-        'NAME: Multiplayer network/desync fix v2.0.0 (message order, mid-turn messages, send loop, keepalive, delete requests, production/buy/martial-law/shipyard/refit/research/intel desyncs, players leaving, heap race, tactical combat, monsters, timer)',
-        'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-18',
+        'NAME: Multiplayer network/desync fix v2.1.0, patch file edition without the automatic resync (message order, mid-turn messages, send loop, keepalive, delete requests, production/buy/martial-law/shipyard/refit/research/intel desyncs, players leaving, heap race, tactical combat, monsters, timer)',
+        'AUTHOR: Claude (Anthropic) for Stephan, 2026-10-19',
         'DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.',
         'DESC: B) orders/queues of a faster player that arrive while this machine is still calculating',
         'DESC:    the turn are parked and handled after the calculation instead of in the middle of it.',
@@ -73,7 +96,7 @@ def main():
         'DESC: J) a ship class made obsolete by research no longer creates a second copy of the replacement build',
         'DESC:    order on the other machines (they built ships twice -> sync error).',
         'DESC: T) manual tactical combat: a ship with an attack order but no target no longer ends the game with',
-        'DESC:    "ai\assault.c line 562" (seen against the Edo Guardian); the ship holds position for that round.',
+        'DESC:    "ai\\assault.c line 562" (seen against the Edo Guardian); the ship holds position for that round.',
         'DESC: W) the random-monster countdown is reset when a game is started or loaded; a player who restarted',
         'DESC:    the game after a crash used to get monsters on other turns than the rest (sync error).',
         'DESC: W2) the same reset also covers the monster name counters (ship checksum) and the economy',
@@ -116,6 +139,8 @@ def main():
         "DESC: HB) a slower player's checksums that arrive after this player ended his next turn are compared at once.",
         'DESC: MS) the empire morale average sums in 32 bits (vanilla only; the mods already have their own sum and',
         'DESC:    this patch file leaves MS out, the standalone patcher applies it where the original code is found).',
+        'DESC: RY) automatic resync (a desync no longer ends the game, the host\'s game is loaded by everybody) is NOT in',
+        'DESC:    this patch file: it needs a new section in trek.exe. Use BotF_MP_fix.exe or botf_mpfix.py for it.',
         'DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.',
         'DESC: Uses the code area 0x516e60-0x%06x (file 0x116260; zero in every variant, see MV), .bss 0x6896e0-0x689800' % code_end,
         'DESC: and the unused end of DGROUP 0x5a1600-0x5a1620 (beyond its file data).',
@@ -127,7 +152,7 @@ def main():
         '# <<  = new value',
         '',
     ]
-    for off, old, new in [e for e in core if group(e) == 0]:
+    for off, old, new in [e for e in core_p if group_p(e) == 0]:
         for k in range(0, len(old), 16):
             lines.append('>> 0x%06x %s' % (off + k, ' '.join('%02X' % x for x in old[k:k + 16])))
         for k in range(0, len(new), 16):
@@ -139,7 +164,11 @@ def main():
     tpl = open(os.path.join(os.path.dirname(__file__), 'botf_mpfix_template.py'), encoding='utf-8').read()
     data = ',\n'.join('    (0x%06x, %r, %r, %d)' % (o, a.hex(), b.hex(), group((o, a, b))) for o, a, b in core)
     so, sa, sb = sleep[0]
-    tpl = tpl.replace('#PATCH_DATA#', data).replace('#SLEEP_OFF#', '0x%06x' % so)
+    blob = base64.b64encode(zlib.compress(sec['data'], 9)).decode()
+    lines_b64 = '\n'.join('        %r' % blob[k:k + 100] for k in range(0, len(blob), 100))
+    secdef = ("{'name': %r, 'rva': 0x%x, 'vsize': 0x%x, 'rsize': 0x%x, 'chars': 0x%08x,\n    'data': (\n%s)}" %
+              (sec['name'], sec['rva'], sec['vsize'], sec['rsize'], sec['chars'], lines_b64))
+    tpl = tpl.replace('#PATCH_DATA#', data).replace('#SLEEP_OFF#', '0x%06x' % so).replace('#SECTION#', secdef)
     open(os.path.join(REL, 'botf_mpfix.py'), 'w', encoding='utf-8', newline='\n').write(tpl)
 
     # ---- patched vanilla executables ------------------------------------------------------

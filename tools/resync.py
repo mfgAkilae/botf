@@ -1,27 +1,33 @@
-"""Resync spike (test build only), docs/resync_design_draft.md section 7.
+"""Automatic resync (Fix RY), docs/resync_design_draft.md sections 7 and 7.2: a heartbeat mismatch no longer ends
+the game; the host's game is transferred to every player and loaded without closing the DirectPlay transport.
 
-A small state machine, driven by the test tool (tools/spike.py) through poke-able fields, transfers the host's
-game state to every client with the stock messages 0x89 (wait dialog) and 0x72 (save file) and applies it without
-closing the DirectPlay transport. No protocol: the tool copies the expected length/CRC32 from the host into the
-clients and writes the states.
+A small state machine transfers the host's game state with the stock messages 0x89 (wait dialog) and 0x72 (save
+file) and applies it on every machine:
 
   sp_state  0 IDLE, 1 PREPARE (host), 2 ARMED (all), 3 SEND (host), 4 DRAIN, 5 DONE
 
-Automatic mode (no tool needed; the manual states above still work): a heartbeat mismatch (0x5100c9, 0x51031f) no
-longer shows the stock synchronization error but sets sp_detect. The host then runs PREPARE from its loop-top step,
-broadcasts ARM (message 0x8a: epoch, sp_len, sp_crc) and goes on to ARMED and SEND; every other machine takes ARM
-in the dispatcher head (before the mute filter) as ARMED with the host's length and CRC32, and the existing queue,
-DRAIN and apply path loads the host's save. A client that sees no ARM within 120 s falls back to the stock error at
-its next mismatch; after DONE the mismatches of the loaded turn are ignored (quiet window, finding B).
+A heartbeat mismatch (0x5100c9, 0x51031f) no longer shows the stock synchronization error but sets sp_detect. The
+host then runs PREPARE from its loop-top step and broadcasts ARM (message 0x8a: epoch, sp_len, sp_crc); every
+other machine takes ARM in the dispatcher head (before the mute filter) as ARMED with the host's length and CRC32
+and answers with ACK (0x8b: epoch). The host sends the file only when every remaining human player has answered
+(players with an older patch or without one never do); otherwise it gives up after ACK_WAIT_MS and broadcasts
+CANCEL (0x8c: epoch), and every machine lets its next mismatch show the stock error (sp_fallback), as before this
+fix. The queue, DRAIN and apply path loads the host's save. A client that sees no ARM within 120 s falls back to
+the stock error at its next mismatch; after DONE the mismatches of the loaded turn are ignored (quiet window,
+finding B). Stock games ignore the ids 0x8a..0x8c (ids above 0x89 are not handled, 0x50a891 -> 0x50a73e).
 
-Everything lives in the enlarged test shim section (build_test.py --spike): code at sec+0x200, data at sec+0x2000.
-Chained into two netfix caves: the dispatcher hook 0x50a709 (Fix B) and the timer hook 0x4b9f6a (Fix K).
+Code and data live in a new PE section that netfix.apply adds (release: '.mpfix' at 0x69e000, the same address in
+all 143 trek.exe variants): code at sec+0, data at sec+code_size. Chained into two netfix caves: the dispatcher
+hook 0x50a709 (Fix B) and the timer hook 0x4b9f6a (Fix K).
+
+debug=True (test builds, build_test.py --spike) adds the test instrumentation: a log ring of every step, the
+rings of received notifications and numbered test messages (spike.py ordertest), and the turn-start snapshot
+variant of the owners' production records (--spike-snapshot). The manual states driven by tools/spike.py work in
+both modes (the fields are listed in <exe>.json).
 """
 import struct
 
-CODE_OFF, DATA_OFF, SECTION_SIZE = 0x200, 0x2000, 0xa000
-
-# data fields (offsets from the data base)
+# data fields (offsets from the data base); the debug-only areas follow the core fields
 FIELDS = {
     'sp_state': 0x00, 'sp_len': 0x04, 'sp_crc': 0x08, 'rs_guard': 0x0c, 'rs_apply': 0x10,
     'tok_valid': 0x14, 'tok_w': 0x18, 'tok_l': 0x1c, 'saved_2994': 0x20, 'q_count': 0x24,
@@ -61,24 +67,41 @@ FIELDS = {
     'arm_tick': 0x2dc,     # client: timeGetTime of that ARM
     'cnt_mismatch': 0x2e0,  # mismatches that reached the hooks (every action, see K_DETECT)
     'armbody': 0x2e4,      # 0xc: the ARM body sent (host)
-    'armrx': 0x2f0,        # 0x10: body of the last ARM received
-    'logring': 0x300,      # 128 x 32: (n, kind, a, b, c, d, e, f)
-    'rxring': 0x1300,      # 256 x 12: (wParam, lParam, type) of every received 0x400
-    'trxring': 0x1f00,     # 256 x 8: (wParam, seq) of every received test message
-    'cnt_dipl': 0x2700,    # per-turn UI rebuilt after a load (finding F: diplomacy items, task-force panel)
+    'armrx': 0x2f0,        # 0x10: body of the last control message received (ARM, ACK, CANCEL)
+    'cnt_dipl': 0x300,     # per-turn UI rebuilt after a load (finding F: diplomacy items, task-force panel)
+    'ack_mask': 0x304,     # host: empires that answered the current ARM
+    'ack_tick': 0x308,     # host: timeGetTime when the current ARM went out
+    'ackbody': 0x30c,      # 4: the ACK / CANCEL body sent (epoch)
+    'cnt_ackrx': 0x310,    # host: ACKs accepted
+    'cnt_cancel': 0x314,   # CANCELs sent (host) or accepted (client)
+    'cancelled': 0x318,    # the current transfer ends with CANCEL: DONE sets sp_fallback
+    'ctl_type': 0x31c,     # id of the control message being decoded
+    'ack_need': 0x320,     # host: empires that still have to answer (diagnostic)
+    'arm_sender': 0x324,   # client: sender id of the last ARM accepted (with sp_epoch it identifies a transfer)
+    'cnt_session': 0x328,  # resets of the session state outside a multiplayer game
+    # debug only (test builds)
+    'logring': 0x400,      # 128 x 32: (n, kind, a, b, c, d, e, f)
+    'rxring': 0x1400,      # 256 x 12: (wParam, lParam, type) of every received 0x400
+    'trxring': 0x2000,     # 256 x 8: (wParam, seq) of every received test message
     'ownflag': 0x2800,     # MAXSYS bytes: system i belonged to the local empire at the snapshot
     'ownbuf': 0x2a00,      # MAXSYS x 0x28: system +0x80..+0xa7 (current and last production record)
 }
+DEBUG_ONLY = ('logring', 'rxring', 'trxring', 'ownflag', 'ownbuf')
 MAXSYS = 512
-DATA_SIZE = 0x2a00 + MAXSYS * 0x28
+DATA_SIZE = {False: 0x400, True: 0x2a00 + MAXSYS * 0x28}
+CODE_SIZE = {False: 0x1400, True: 0x2000}
+SECTION_SIZE = {d: CODE_SIZE[d] + DATA_SIZE[d] for d in (False, True)}
 LOG_N, RX_N, TRX_N = 128, 256, 256
 QMAX = 4
 TEST_MSG = 0x94            # not a stock id and not one of the planned resync ids 0x8a..0x93
-# Automatic mode. 0x8a is not a stock id (ids above 0x89 end at 0x50a891 -> 0x50a73e: not handled, record left in
-# the pool); the protocol table (design section 3.1) gives 0x8a to REQ, the protocol has to renumber.
+# Control messages. Ids above 0x89 are not stock ids (they end at 0x50a891 -> 0x50a73e: not handled, record left in
+# the pool), so a game without this fix ignores them.
 ARM_MSG, ARM_LEN, ARMRX_MAX = 0x8a, 12, 0x10
+ACK_MSG, CANCEL_MSG, EPOCH_LEN = 0x8b, 0x8c, 4
 FALLBACK_MS = 120000       # client: no ARM this long after its mismatch -> the next mismatch shows the stock error
 ARM_WAIT_MS = 300000       # client: ARMED by an ARM and nothing from the host this long -> DONE (host failed at SEND)
+ACK_WAIT_MS = 30000        # host: not every player answered ARM this long -> CANCEL, stock error at the next mismatch
+GONE = 0x5a1608            # netfix d_gone (Fix LV): players who left but stay in the player mask for this turn
 
 # log kinds
 K_PREP, K_SENT, K_QUEUED, K_REDISP, K_RETIRE, K_RAW, K_APPLY, K_FAIL, K_DONE, K_TEST = range(1, 11)
@@ -90,35 +113,44 @@ K_PREP, K_SENT, K_QUEUED, K_REDISP, K_RETIRE, K_RAW, K_APPLY, K_FAIL, K_DONE, K_
 #   K_ARMIGN   ARM ignored (reason IGN_*, value, sender, sp_epoch)
 #   K_FALLBACK (reason FB_*, ms since the mismatch or 0, turn)
 K_DETECT, K_AUTO, K_ARM, K_ARMRX, K_ARMIGN, K_FALLBACK = range(11, 17)
+#   K_ACKRX    host accepted ACK (epoch, empire, ack_mask, sender)
+#   K_CANCEL   CANCEL sent (host: epoch, ack_mask, need) or accepted (client: epoch, sender)
+K_ACKRX, K_CANCEL = 17, 18
 DET_NEW, DET_PENDING, DET_QUIET, DET_TRANSFER, DET_STOCK = range(5)
 IGN_LEN, IGN_SENDER, IGN_HOST, IGN_STALE, IGN_STATE, IGN_NOGAME = range(1, 7)
 FB_NOARM, FB_PREPARE = 1, 2
 # failure codes
-F_RAWLEN, F_RAWCRC, F_OVERFLOW, F_FLAG, F_FILE, F_TOKEN, F_RETIRE, F_ARMWAIT = range(1, 9)
+F_RAWLEN, F_RAWCRC, F_OVERFLOW, F_FLAG, F_FILE, F_TOKEN, F_RETIRE, F_ARMWAIT, F_ACKWAIT, F_CANCEL, F_SESSION, F_HOSTGONE = range(1, 13)
 
 
-def apply(p, sec, info, pump_override=True, owner_mode='restart'):
+def apply(p, sec, info, debug=False, pump_override=True, owner_mode='restart'):
+    """sec: VA of a zero-filled section of SECTION_SIZE[debug] bytes; info: netfix.apply's addresses"""
     from asmutil import asm, call_rel, jmp_rel        # keystone only for building; tools/spike.py needs just the layout
     assert owner_mode in ('restart', 'snapshot')
     snapshot = owner_mode == 'snapshot'
-    assert CODE_OFF < DATA_OFF and DATA_OFF + DATA_SIZE <= SECTION_SIZE
-    D = sec + DATA_OFF
-    a = {k: D + v for k, v in FIELDS.items()}
+    assert debug or not snapshot, 'the snapshot variant is a test variant (debug=True)'
+    assert max(v for k, v in FIELDS.items() if k not in DEBUG_ONLY) < DATA_SIZE[False]
+    code_end = sec + CODE_SIZE[debug]
+    D = code_end
+    a = {k: D + v for k, v in FIELDS.items() if debug or k not in DEBUG_ONLY}
     lg = a['lg']
-    code = sec + CODE_OFF
+    code = sec
     out = {}
 
     def put(name, text):
         nonlocal code
         b = asm(text, code)
-        assert code + len(b) <= sec + DATA_OFF, name
+        assert code + len(b) <= code_end, name
         p.write(code, b)
         out[name] = code
         code += (len(b) + 15) & ~15
         return out[name]
 
     def log(kind, **vals):
-        """inline: stage up to six values (registers or immediates) and append a log entry; keeps all registers"""
+        """inline: stage up to six values (registers or immediates) and append a log entry; keeps all registers.
+        Release builds have no log: the staging and the call are left out (no other side effects)."""
+        if not debug:
+            return ''
         s = ''.join(f'    mov dword ptr [{lg + 4 * "abcdef".index(k):#x}], {v}\n' for k, v in vals.items())
         return s + f'    push eax\n    mov eax, {kind}\n    call {logf:#x}\n    pop eax\n'
 
@@ -126,8 +158,8 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         return (f'    mov dword ptr [{a["last_fail"]:#x}], {codeval}\n'
                 + log(K_FAIL, a=codeval))
 
-    # ---- log append: eax = kind, the staged values at lg ------------------------------------------------
-    logf = put('log', f'''
+    # ---- log append (debug): eax = kind, the staged values at lg -------------------------------------------
+    logf = None if not debug else put('log', f'''
         pushad
         pushfd
         cld
@@ -249,87 +281,88 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     ''')
 
     # ---- turn-start snapshot of the local empire's production records (finding E, see below) -----------------
-    ob, of = a['ownbuf'], a['ownflag']
-    ownsave = put('ownsave', f'''
-        pushad
-        movzx eax, byte ptr [0x5a2b2a]
-        mov dword ptr [{a['own_emp']:#x}], eax
-        mov dword ptr [{a['own_n']:#x}], 0
-        mov esi, dword ptr [0x5a36c8]
-        test esi, esi
-        je os_done
-        movzx ecx, word ptr [0x5a36bc]
-        cmp ecx, {MAXSYS}
-        jbe os_n
-        mov ecx, {MAXSYS}
-    os_n:
-        mov dword ptr [{a['own_n']:#x}], ecx
-        xor ebx, ebx
-        cld
-    os_loop:
-        cmp ebx, ecx
-        jae os_done
-        mov byte ptr [ebx + {of:#x}], 0
-        movzx eax, byte ptr [esi + 0x4c]
-        cmp eax, dword ptr [{a['own_emp']:#x}]
-        jne os_next
-        mov byte ptr [ebx + {of:#x}], 1
-        push ecx
-        push esi
-        imul edi, ebx, 0x28
-        add edi, {ob:#x}
-        add esi, 0x80
-        mov ecx, 10
-        rep movsd dword ptr es:[edi], dword ptr [esi]
-        pop esi
-        pop ecx
-    os_next:
-        add esi, 0x328
-        inc ebx
-        jmp os_loop
-    os_done:
-        popad
-        ret
-    ''')
-    ownrest = put('ownrest', f'''
-        pushad
-        mov ecx, dword ptr [{a['own_n']:#x}]
-        movzx eax, word ptr [0x5a36bc]
-        cmp ecx, eax
-        jbe or_n
-        mov ecx, eax
-    or_n:
-        mov esi, dword ptr [0x5a36c8]
-        test esi, esi
-        je or_done
-        xor ebx, ebx
-        cld
-    or_loop:
-        cmp ebx, ecx
-        jae or_done
-        cmp byte ptr [ebx + {of:#x}], 0
-        je or_next
-        movzx eax, byte ptr [esi + 0x4c]
-        cmp eax, dword ptr [{a['own_emp']:#x}]
-        jne or_next
-        push ecx
-        push esi
-        lea edi, [esi + 0x80]
-        imul esi, ebx, 0x28
-        add esi, {ob:#x}
-        mov ecx, 10
-        rep movsd dword ptr es:[edi], dword ptr [esi]
-        pop esi
-        pop ecx
-        inc dword ptr [{a['cnt_ownrestore']:#x}]
-    or_next:
-        add esi, 0x328
-        inc ebx
-        jmp or_loop
-    or_done:
-        popad
-        ret
-    ''')
+    if snapshot:                       # test variant only (debug)
+        ob, of = a['ownbuf'], a['ownflag']
+        ownsave = put('ownsave', f'''
+            pushad
+            movzx eax, byte ptr [0x5a2b2a]
+            mov dword ptr [{a['own_emp']:#x}], eax
+            mov dword ptr [{a['own_n']:#x}], 0
+            mov esi, dword ptr [0x5a36c8]
+            test esi, esi
+            je os_done
+            movzx ecx, word ptr [0x5a36bc]
+            cmp ecx, {MAXSYS}
+            jbe os_n
+            mov ecx, {MAXSYS}
+        os_n:
+            mov dword ptr [{a['own_n']:#x}], ecx
+            xor ebx, ebx
+            cld
+        os_loop:
+            cmp ebx, ecx
+            jae os_done
+            mov byte ptr [ebx + {of:#x}], 0
+            movzx eax, byte ptr [esi + 0x4c]
+            cmp eax, dword ptr [{a['own_emp']:#x}]
+            jne os_next
+            mov byte ptr [ebx + {of:#x}], 1
+            push ecx
+            push esi
+            imul edi, ebx, 0x28
+            add edi, {ob:#x}
+            add esi, 0x80
+            mov ecx, 10
+            rep movsd dword ptr es:[edi], dword ptr [esi]
+            pop esi
+            pop ecx
+        os_next:
+            add esi, 0x328
+            inc ebx
+            jmp os_loop
+        os_done:
+            popad
+            ret
+        ''')
+        ownrest = put('ownrest', f'''
+            pushad
+            mov ecx, dword ptr [{a['own_n']:#x}]
+            movzx eax, word ptr [0x5a36bc]
+            cmp ecx, eax
+            jbe or_n
+            mov ecx, eax
+        or_n:
+            mov esi, dword ptr [0x5a36c8]
+            test esi, esi
+            je or_done
+            xor ebx, ebx
+            cld
+        or_loop:
+            cmp ebx, ecx
+            jae or_done
+            cmp byte ptr [ebx + {of:#x}], 0
+            je or_next
+            movzx eax, byte ptr [esi + 0x4c]
+            cmp eax, dword ptr [{a['own_emp']:#x}]
+            jne or_next
+            push ecx
+            push esi
+            lea edi, [esi + 0x80]
+            imul esi, ebx, 0x28
+            add esi, {ob:#x}
+            mov ecx, 10
+            rep movsd dword ptr es:[edi], dword ptr [esi]
+            pop esi
+            pop ecx
+            inc dword ptr [{a['cnt_ownrestore']:#x}]
+        or_next:
+            add esi, 0x328
+            inc ebx
+            jmp or_loop
+        or_done:
+            popad
+            ret
+        ''')
 
     # ---- apply helper (section 4.4 steps 1-6; LOADED replaced by a log entry) ------------------------------
     # After a successful apply (finding F): the screens keep per-turn caches with raw pointers into data the load freed - the diplomacy
@@ -479,9 +512,7 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
 
     # ---- section 4.2: queue 0x89/0x72 while sp_state is 2..4, one-shot token, test messages ---------------
     # at 0x50a709: AX = message id, ECX = window message, ESI = wParam, EDI = lParam, [esp] = scratch word
-    disp = put('disp', f'''
-        cmp ecx, 0x400
-        jne d_chain
+    rxrec = f'''
         pushad
         mov edx, dword ptr [{a['rx_n']:#x}]
         and edx, {RX_N - 1}
@@ -494,7 +525,33 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         inc dword ptr [{a['rx_n']:#x}]
         popad
         cmp ax, {TEST_MSG:#x}
-        je d_test
+        je d_test''' if debug else ''
+    dtest = f'''
+    d_test:
+        pushad
+        mov eax, edi
+        mov edx, esi
+        call 0x519910
+        cmp eax, 0x40
+        ja d_testout
+        mov eax, edi
+        mov edx, {a['scratch']:#x}
+        mov ebx, esi
+        call 0x519900
+        mov edx, dword ptr [{a['trx_n']:#x}]
+        and edx, {TRX_N - 1}
+        shl edx, 3
+        mov dword ptr [edx + {a['trxring']:#x}], esi
+        mov eax, dword ptr [{a['scratch']:#x}]
+        mov dword ptr [edx + {a['trxring'] + 4:#x}], eax
+        inc dword ptr [{a['trx_n']:#x}]
+    d_testout:
+        popad
+        jmp 0x50a762''' if debug else ''
+    disp = put('disp', f'''
+        cmp ecx, 0x400
+        jne d_chain
+{rxrec}
         cmp ax, 0x89
         je d_cand
         cmp ax, 0x72
@@ -539,27 +596,7 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
 {fail(F_OVERFLOW)}
         mov dword ptr [{a['apply_result']:#x}], 2
         jmp 0x50a762
-    d_test:
-        pushad
-        mov eax, edi
-        mov edx, esi
-        call 0x519910
-        cmp eax, 0x40
-        ja d_testout
-        mov eax, edi
-        mov edx, {a['scratch']:#x}
-        mov ebx, esi
-        call 0x519900
-        mov edx, dword ptr [{a['trx_n']:#x}]
-        and edx, {TRX_N - 1}
-        shl edx, 3
-        mov dword ptr [edx + {a['trxring']:#x}], esi
-        mov eax, dword ptr [{a['scratch']:#x}]
-        mov dword ptr [edx + {a['trxring'] + 4:#x}], eax
-        inc dword ptr [{a['trx_n']:#x}]
-    d_testout:
-        popad
-        jmp 0x50a762
+{dtest}
     d_chain:
         jmp {info['dispatch']:#x}
     ''')
@@ -583,16 +620,29 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         ret
     ''')
 
-    # ---- automatic mode: ARM in the dispatcher head 0x50a6ef, before the mute filter ---------------------------
+    # ---- control messages ARM / ACK / CANCEL in the dispatcher head 0x50a6ef, before the mute filter -----------------
     # FUN_00510600 (0x50a6ef) drops a message when the receiver's local [0x5a2b50] marks its own or the sender's
-    # empire; after a divergence that mask can be wrong, so the control is decoded first (design section 3.3).
+    # empire; after a divergence that mask can be wrong, so the controls are decoded first (design section 3.3).
     # Regs: eax = esi = wParam (sender id), edi = ebx = lParam, ecx = window message, [esp] = scratch dword (the
     # frame of 0x50a709, so 0x50a762 returns 1). The type lookup FUN_00519920 (eax = lParam, edx = wParam, as
     # 0x50a74f/0x50a704 do for 0x400) only reads the record; it needs the receive list [0x5a0dfc] (FUN_0051b150).
-    # ARM changes states only, at any depth. Its record is released exactly once: FUN_00519900 copies the body
-    # and frees the record (0x54dc90 -> FUN_0054dcd0); a body larger than armrx goes to a buffer of the 0x72
+    # A control changes states only, at any depth. Its record is released exactly once: FUN_00519900 copies the
+    # body and frees the record (0x54dc90 -> FUN_0054dcd0); a body larger than armrx goes to a buffer of the 0x72
     # receiver's kind (FUN_00492f90, freed with FUN_00492e60; if that allocation fails the record stays in the pool
     # like a stock unknown id). Every other message runs the filter as before.
+    #   ARM    (client): ARMED with the host's length and CRC32 (newer epoch only), answered with ACK (epoch).
+    #   ACK    (host, while it waits after ARM): the sender's empire is added to ack_mask (player table 0x5a29f8:
+    #          5 x 0x34, id at +0x28, empire at +0x2c).
+    #   CANCEL (client, ARMED by that epoch and nothing queued): DONE without an apply, stock error next time.
+    rxctl = f'''
+        mov edx, dword ptr [{a['rx_n']:#x}]
+        and edx, {RX_N - 1}
+        lea edx, [edx + edx*2]
+        shl edx, 2
+        mov dword ptr [edx + {a['rxring']:#x}], esi
+        mov dword ptr [edx + {a['rxring'] + 4:#x}], edi
+        mov dword ptr [edx + {a['rxring'] + 8:#x}], eax
+        inc dword ptr [{a['rx_n']:#x}]''' if debug else ''
     ctl = put('ctl', f'''
         cmp ecx, 0x400
         jne c_filter
@@ -602,21 +652,19 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov eax, edi
         mov edx, esi
         call 0x519920
-        cmp ax, {ARM_MSG:#x}
-        je c_arm
+        movzx eax, ax
+        cmp eax, {ARM_MSG:#x}
+        jb c_other
+        cmp eax, {CANCEL_MSG:#x}
+        jbe c_mine
+    c_other:
         popad
     c_filter:
         call 0x510600
         jmp 0x50a6f4
-    c_arm:
-        mov edx, dword ptr [{a['rx_n']:#x}]
-        and edx, {RX_N - 1}
-        lea edx, [edx + edx*2]
-        shl edx, 2
-        mov dword ptr [edx + {a['rxring']:#x}], esi
-        mov dword ptr [edx + {a['rxring'] + 4:#x}], edi
-        mov dword ptr [edx + {a['rxring'] + 8:#x}], {ARM_MSG:#x}
-        inc dword ptr [{a['rx_n']:#x}]
+    c_mine:
+        mov dword ptr [{a['ctl_type']:#x}], eax
+{rxctl}
         mov eax, edi
         mov edx, esi
         call 0x519910
@@ -628,9 +676,6 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov ebx, esi
         call 0x519900
         mov ebx, ebp
-        mov ecx, {IGN_LEN}
-        cmp ebp, {ARM_LEN}
-        jne c_ignore
         mov ecx, {IGN_NOGAME}
         cmp dword ptr [0x5a2924], 0
         je c_ignore
@@ -642,16 +687,26 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov ecx, {IGN_SENDER}
         test eax, eax
         je c_ignore
+        mov ebx, ebp
+        mov ecx, {IGN_LEN}
+        mov eax, dword ptr [{a['ctl_type']:#x}]
+        cmp eax, {ACK_MSG:#x}
+        je c_ack
+        cmp eax, {CANCEL_MSG:#x}
+        je c_cancel
+        cmp ebp, {ARM_LEN}
+        jne c_ignore
         call {ishost:#x}
         mov ecx, {IGN_HOST}
         test eax, eax
         jne c_ignore
         mov ebx, dword ptr [{a['armrx']:#x}]
-        mov eax, ebx
-        sub eax, dword ptr [{a['sp_epoch']:#x}]
         mov ecx, {IGN_STALE}
-        test eax, eax
-        jle c_ignore
+        cmp ebx, dword ptr [{a['sp_epoch']:#x}]
+        jne c_fresh
+        cmp esi, dword ptr [{a['arm_sender']:#x}]
+        je c_ignore
+    c_fresh:
         mov ebx, dword ptr [{a['sp_state']:#x}]
         mov ecx, {IGN_STATE}
         test ebx, ebx
@@ -665,6 +720,7 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     c_accept:
         mov eax, dword ptr [{a['armrx']:#x}]
         mov dword ptr [{a['sp_epoch']:#x}], eax
+        mov dword ptr [{a['arm_sender']:#x}], esi
         mov eax, dword ptr [{a['armrx'] + 4:#x}]
         mov dword ptr [{a['sp_len']:#x}], eax
         mov eax, dword ptr [{a['armrx'] + 8:#x}]
@@ -673,14 +729,84 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov dword ptr [{a['sp_state']:#x}], 2
         mov dword ptr [{a['arm_auto']:#x}], 1
         mov dword ptr [{a['sp_fallback']:#x}], 0
+        mov dword ptr [{a['cancelled']:#x}], 0
         inc dword ptr [{a['sp_arm_rx']:#x}]
         call dword ptr [0x5743fc]
         mov dword ptr [{a['arm_tick']:#x}], eax
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+        mov dword ptr [{a['ackbody']:#x}], eax
+        mov eax, {ACK_MSG:#x}
+        mov edx, {a['ackbody']:#x}
+        mov ebx, {EPOCH_LEN}
+        call 0x519960
         mov eax, dword ptr [{a['sp_epoch']:#x}]
         mov ecx, dword ptr [{a['sp_len']:#x}]
         mov edx, dword ptr [{a['sp_crc']:#x}]
         mov edi, dword ptr [{a['sp_detect']:#x}]
 {log(K_ARMRX, a='eax', b='ecx', c='edx', d='esi', e='ebx', f='edi')}
+        popad
+        jmp 0x50a762
+    c_ack:
+        cmp ebp, {EPOCH_LEN}
+        jne c_ignore
+        mov ecx, {IGN_STATE}
+        cmp dword ptr [{a['sp_auto']:#x}], 2
+        jne c_ignore
+        cmp dword ptr [{a['sp_state']:#x}], 2
+        jne c_ignore
+        mov ebx, dword ptr [{a['armrx']:#x}]
+        mov ecx, {IGN_STALE}
+        cmp ebx, dword ptr [{a['sp_epoch']:#x}]
+        jne c_ignore
+        mov ebx, esi
+        mov ecx, {IGN_SENDER}
+        mov eax, 0x5a29f8
+        xor edx, edx
+    c_find:
+        cmp esi, dword ptr [eax + 0x28]
+        je c_found
+        add eax, 0x34
+        inc edx
+        cmp edx, 5
+        jb c_find
+        jmp c_ignore
+    c_found:
+        movzx edx, byte ptr [eax + 0x2c]
+        cmp edx, 8
+        jae c_ignore
+        bts dword ptr [{a['ack_mask']:#x}], edx
+        inc dword ptr [{a['cnt_ackrx']:#x}]
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+        mov ecx, dword ptr [{a['ack_mask']:#x}]
+{log(K_ACKRX, a='eax', b='edx', c='ecx', d='esi')}
+        popad
+        jmp 0x50a762
+    c_cancel:
+        cmp ebp, {EPOCH_LEN}
+        jne c_ignore
+        call {ishost:#x}
+        mov ecx, {IGN_HOST}
+        test eax, eax
+        jne c_ignore
+        mov ebx, dword ptr [{a['armrx']:#x}]
+        mov ecx, {IGN_STALE}
+        cmp ebx, dword ptr [{a['sp_epoch']:#x}]
+        jne c_ignore
+        cmp esi, dword ptr [{a['arm_sender']:#x}]
+        jne c_ignore
+        mov ecx, {IGN_STATE}
+        cmp dword ptr [{a['sp_state']:#x}], 2
+        jne c_ignore
+        cmp dword ptr [{a['arm_auto']:#x}], 0
+        je c_ignore
+        cmp dword ptr [{a['q_count']:#x}], 0
+        jne c_ignore
+        mov dword ptr [{a['cancelled']:#x}], 1
+        inc dword ptr [{a['cnt_cancel']:#x}]
+        mov dword ptr [{a['last_fail']:#x}], {F_CANCEL}
+        mov dword ptr [{a['apply_result']:#x}], 2
+        mov dword ptr [{a['sp_state']:#x}], 5
+{log(K_CANCEL, a='ebx', b='esi')}
         popad
         jmp 0x50a762
     c_big:
@@ -1144,6 +1270,8 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov ecx, {QMAX * 4}
         cld
         rep stosd
+        cmp dword ptr [{a['cancelled']:#x}], 0
+        jne dn_cancel
         cmp dword ptr [{a['sp_auto']:#x}], 1
         jne dn_quiet
         cmp dword ptr [{a['sp_retry']:#x}], 0
@@ -1162,6 +1290,12 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         mov dword ptr [{a['sp_quiet']:#x}], ecx
         mov dword ptr [{a['sp_detect']:#x}], eax
         mov dword ptr [{a['sp_retry']:#x}], eax
+        jmp dn_out
+    dn_cancel:
+        mov dword ptr [{a['cancelled']:#x}], eax
+        mov dword ptr [{a['sp_retry']:#x}], eax
+        mov dword ptr [{a['sp_detect']:#x}], eax
+        mov dword ptr [{a['sp_fallback']:#x}], 1
     dn_out:
         mov dword ptr [{a['sp_auto']:#x}], eax
         mov dword ptr [{a['arm_auto']:#x}], eax
@@ -1169,7 +1303,7 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         ret
     ''')
 
-    sendtest = put('sendtest', f'''
+    sendtest = None if not debug else put('sendtest', f'''
         mov ecx, dword ptr [{a['test_n']:#x}]
         mov dword ptr [{a['test_n']:#x}], 0
         mov edi, ecx
@@ -1201,6 +1335,9 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     arm = put('arm', f'''
         cmp dword ptr [{a['sp_state']:#x}], 1
         jne ar_out
+        mov dword ptr [{a['ack_mask']:#x}], 0
+        call dword ptr [0x5743fc]
+        mov dword ptr [{a['ack_tick']:#x}], eax
         inc dword ptr [{a['sp_epoch']:#x}]
         mov eax, dword ptr [{a['sp_epoch']:#x}]
         mov dword ptr [{a['armbody']:#x}], eax
@@ -1229,8 +1366,10 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
     # ---- automatic mode: loop-top part (runs before the state switch) -------------------------------------------
     # 1. the quiet window ends when the turn changes (also keeps a later game of this process at the same turn
     #    number unaffected);
-    # 2. client ARMED by an ARM and nothing queued for ARM_WAIT_MS: the host failed between ARM and SEND (its SEND
-    #    checks the file before 0x89 goes out) -> DONE without an apply; no dialog is open in state 2;
+    # 2. client ARMED by an ARM and nothing queued: the sender of that ARM is no longer in the player table (the host
+    #    left; DirectPlay makes another machine the host, which starts its own transfer at the next mismatch), or
+    #    ARM_WAIT_MS passed (the host failed between ARM and SEND; its SEND checks the file before 0x89 goes out)
+    #    -> DONE without an apply; no dialog is open in state 2;
     # 3. host: ARM went out in an earlier step -> SEND (the driver's step 3);
     # 4. idle with sp_detect: the host starts PREPARE unless it is in its turn processing ([0x5a291c] == 1); a
     #    client waits for ARM and after FALLBACK_MS lets its next mismatch show the stock error.
@@ -1248,6 +1387,22 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         jne au_host
         cmp dword ptr [{a['q_count']:#x}], 0
         jne au_host
+        mov eax, 0x5a29f8
+        xor ecx, ecx
+        mov edx, dword ptr [{a['arm_sender']:#x}]
+    au_find:
+        cmp edx, dword ptr [eax + 0x28]
+        je au_alive
+        add eax, 0x34
+        inc ecx
+        cmp ecx, 5
+        jb au_find
+        mov dword ptr [{a['last_fail']:#x}], {F_HOSTGONE}
+{log(K_FAIL, a=F_HOSTGONE, b='edx')}
+        mov dword ptr [{a['apply_result']:#x}], 2
+        mov dword ptr [{a['sp_state']:#x}], 5
+        ret
+    au_alive:
         call dword ptr [0x5743fc]
         sub eax, dword ptr [{a['arm_tick']:#x}]
         cmp eax, {ARM_WAIT_MS}
@@ -1264,7 +1419,39 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         jne au_idle
         cmp dword ptr [{a['sp_auto']:#x}], 2
         jne au_ret
+        movzx edx, byte ptr [0x5a2b28]
+        mov eax, dword ptr [{GONE:#x}]
+        not eax
+        and edx, eax
+        movzx ecx, byte ptr [0x5a2b2a]
+        btr edx, ecx
+        mov eax, dword ptr [{a['ack_mask']:#x}]
+        not eax
+        and eax, edx
+        mov dword ptr [{a['ack_need']:#x}], eax
+        jne au_ackwait
         mov dword ptr [{a['sp_state']:#x}], 3
+        ret
+    au_ackwait:
+        call dword ptr [0x5743fc]
+        sub eax, dword ptr [{a['ack_tick']:#x}]
+        cmp eax, {ACK_WAIT_MS}
+        jb au_ret
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+        mov dword ptr [{a['ackbody']:#x}], eax
+        mov eax, {CANCEL_MSG:#x}
+        mov edx, {a['ackbody']:#x}
+        mov ebx, {EPOCH_LEN}
+        call 0x519960
+        inc dword ptr [{a['cnt_cancel']:#x}]
+        mov dword ptr [{a['cancelled']:#x}], 1
+        mov dword ptr [{a['last_fail']:#x}], {F_ACKWAIT}
+        mov eax, dword ptr [{a['sp_epoch']:#x}]
+        mov ecx, dword ptr [{a['ack_mask']:#x}]
+        mov edx, dword ptr [{a['ack_need']:#x}]
+{log(K_CANCEL, a='eax', b='ecx', c='edx')}
+        mov dword ptr [{a['apply_result']:#x}], 2
+        mov dword ptr [{a['sp_state']:#x}], 5
         ret
     au_idle:
         test eax, eax
@@ -1316,7 +1503,69 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         call 0x438630
         mov eax, dword ptr [0x5a2918]
         mov dword ptr [{a['ts_turn']:#x}], eax''' if snapshot else ''
+    # Session boundary: outside a multiplayer game ([0x5a2924] or [0x5a2920] is 0: menus, lobby; 0x50d25c, 0x402118)
+    # and with no transfer running, the per-game state is cleared, so a later game of this process starts fresh (no
+    # fallback, detection, epoch or quiet window left over from an earlier game). [0x5a2920] is also 0 for a moment
+    # inside a load (0x43d1a9, set again at 0x438756), but then a transfer runs (sp_state != 0) or it is a stock
+    # load that starts a new game anyway.
+    # A transfer that has not received anything yet (PREPARE, or ARMED with an empty queue) is aborted as soon as the
+    # multiplayer game is gone (the player left the session): the teardown clears the player mask, and the host's ACK
+    # wait would otherwise take the empty mask for "everybody answered" and send and load without a session (found by
+    # the final review). DONE then takes the CANCEL path; the next step outside the game clears the rest.
+    sessreset = f'''
+        mov eax, dword ptr [0x5a2924]
+        test eax, eax
+        je s_out
+        mov eax, dword ptr [0x5a2920]
+        test eax, eax
+        jne s_in
+    s_out:
+        cmp dword ptr [{a['sp_state']:#x}], 0
+        jne s_in
+        cmp dword ptr [{a['rs_guard']:#x}], 0
+        jne s_in
+        mov eax, dword ptr [{a['sp_fallback']:#x}]
+        or eax, dword ptr [{a['sp_detect']:#x}]
+        or eax, dword ptr [{a['sp_epoch']:#x}]
+        or eax, dword ptr [{a['arm_sender']:#x}]
+        or eax, dword ptr [{a['sp_auto']:#x}]
+        or eax, dword ptr [{a['cancelled']:#x}]
+        je s_in
+        xor eax, eax
+        mov dword ptr [{a['sp_fallback']:#x}], eax
+        mov dword ptr [{a['sp_detect']:#x}], eax
+        mov dword ptr [{a['sp_epoch']:#x}], eax
+        mov dword ptr [{a['arm_sender']:#x}], eax
+        mov dword ptr [{a['sp_auto']:#x}], eax
+        mov dword ptr [{a['sp_retry']:#x}], eax
+        mov dword ptr [{a['arm_auto']:#x}], eax
+        mov dword ptr [{a['cancelled']:#x}], eax
+        mov dword ptr [{a['sp_quiet']:#x}], -1
+        inc dword ptr [{a['cnt_session']:#x}]
+    s_in:
+        mov eax, dword ptr [0x5a2924]
+        test eax, eax
+        je s_gone
+        mov eax, dword ptr [0x5a2920]
+        test eax, eax
+        jne s_live
+    s_gone:
+        mov eax, dword ptr [{a['sp_state']:#x}]
+        cmp eax, 1
+        je s_abort
+        cmp eax, 2
+        jne s_live
+        cmp dword ptr [{a['q_count']:#x}], 0
+        jne s_live
+    s_abort:
+        mov dword ptr [{a['cancelled']:#x}], 1
+        mov dword ptr [{a['last_fail']:#x}], {F_SESSION}
+{log(K_FAIL, a=F_SESSION, b='eax')}
+        mov dword ptr [{a['apply_result']:#x}], 2
+        mov dword ptr [{a['sp_state']:#x}], 5
+    s_live:'''
     step = put('step', f'''
+{sessreset}
 {turnstart}
     s_nosnap:
         mov eax, dword ptr [{a['sp_state']:#x}]
@@ -1326,9 +1575,9 @@ def apply(p, sec, info, pump_override=True, owner_mode='restart'):
         ja s_guard
         mov dword ptr [{a['rs_guard']:#x}], 1
     s_guard:
-        cmp dword ptr [{a['test_n']:#x}], 0
+{f"""        cmp dword ptr [{a['test_n']:#x}], 0
         je s_auto
-        call {sendtest:#x}
+        call {sendtest:#x}""" if debug else ''}
     s_auto:
         call {auto:#x}
     s_state:

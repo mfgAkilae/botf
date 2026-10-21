@@ -18,6 +18,8 @@ sleep 3
 nohup python -I -u tools/observer.py $N $D > $D/observer_stdout.txt 2>&1 &
 sleep 6
 for x in A B C D E; do f=""; [ $x = A ] && f="--heavy"; nohup python -I -u tools/player.py $x $SEED $AG --spike-json $SPIKE_JSON $f $PLAYER_FLAGS > $AG/player_${x}_stdout.txt 2>&1 & sleep 1; done
+# TACTICAL=1: tools/tactical.py plays manual tactical combats (needed when the save has MANUAL combat)
+[ "$TACTICAL" = 1 ] && nohup python -I -u tools/tactical.py 86400 $AG $SEED > $AG/tactical_stdout.txt 2>&1 &
 turn() { python -I -c "import sys,struct; sys.path.insert(0,'tools'); import harness as H; print(struct.unpack('<I', H.readmem(H.load_state()['A'], 0x5a2918, 4))[0])"; }
 next=$(( $(turn) + IV )); k=0
 while [ ! -e $D/stop ]; do

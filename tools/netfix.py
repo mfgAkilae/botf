@@ -86,7 +86,7 @@ DATA_CAVE, DATA_CAVE_END = 0x6896e0, 0x689800
 DATA2, DATA2_END = 0x5a1600, 0x5a2000
 
 
-def apply(p):
+def apply(p, with_resync=True, resync_debug=False, **resync_kw):
     data = DATA_CAVE
     d_fail = data + 0x00
     d_count = data + 0x04
@@ -1653,4 +1653,16 @@ def apply(p):
     p.patch(0x510285, '833d1c295a00000f8500020000', '833d1c295a00010f8400020000')
 
     out["code_end"] = code
+
+    # ---- Fix RY: automatic resync (tools/resync.py) in a new PE section ------------------------------------------
+    # A heartbeat mismatch no longer ends the game: the host transfers its game and every player loads it. The code
+    # does not fit the caves above; it gets its own section '.mpfix' (in every trek.exe variant of the installer the
+    # first new section lands at 0x69e000, after .rsrc). with_resync=False leaves it out (the community .patch file
+    # cannot add a section); resync_debug=True is the instrumented test variant (build_test.py --spike).
+    if with_resync:
+        import resync
+        assert d_gone == resync.GONE
+        sec = p.add_section('.mpfix', resync.SECTION_SIZE[resync_debug], 0xE0000060)
+        out['resync'] = resync.apply(p, sec, out, debug=resync_debug, **resync_kw)
+        out['section'] = sec
     return out

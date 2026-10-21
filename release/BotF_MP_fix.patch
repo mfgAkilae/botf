@@ -1,5 +1,5 @@
-NAME: Multiplayer network/desync fix v2.0.0 (message order, mid-turn messages, send loop, keepalive, delete requests, production/buy/martial-law/shipyard/refit/research/intel desyncs, players leaving, heap race, tactical combat, monsters, timer)
-AUTHOR: Claude (Anthropic) for Stephan, 2026-10-18
+NAME: Multiplayer network/desync fix v2.1.0, patch file edition without the automatic resync (message order, mid-turn messages, send loop, keepalive, delete requests, production/buy/martial-law/shipyard/refit/research/intel desyncs, players leaving, heap race, tactical combat, monsters, timer)
+AUTHOR: Claude (Anthropic) for Stephan, 2026-10-19
 DESC: A) production queues (msg 0x74) are sent before the orders (msg 0x68) at end of turn.
 DESC: B) orders/queues of a faster player that arrive while this machine is still calculating
 DESC:    the turn are parked and handled after the calculation instead of in the middle of it.
@@ -22,7 +22,7 @@ DESC:    ahead of the other machines (the owner finished the next build early ->
 DESC: J) a ship class made obsolete by research no longer creates a second copy of the replacement build
 DESC:    order on the other machines (they built ships twice -> sync error).
 DESC: T) manual tactical combat: a ship with an attack order but no target no longer ends the game with
-DESC:    "aissault.c line 562" (seen against the Edo Guardian); the ship holds position for that round.
+DESC:    "ai\assault.c line 562" (seen against the Edo Guardian); the ship holds position for that round.
 DESC: W) the random-monster countdown is reset when a game is started or loaded; a player who restarted
 DESC:    the game after a crash used to get monsters on other turns than the rest (sync error).
 DESC: W2) the same reset also covers the monster name counters (ship checksum) and the economy
@@ -65,6 +65,8 @@ DESC:    turn calculation he is only marked gone until the calculation ends).
 DESC: HB) a slower player's checksums that arrive after this player ended his next turn are compared at once.
 DESC: MS) the empire morale average sums in 32 bits (vanilla only; the mods already have their own sum and
 DESC:    this patch file leaves MS out, the standalone patcher applies it where the original code is found).
+DESC: RY) automatic resync (a desync no longer ends the game, the host's game is loaded by everybody) is NOT in
+DESC:    this patch file: it needs a new section in trek.exe. Use BotF_MP_fix.exe or botf_mpfix.py for it.
 DESC: Wire format unchanged (works with unpatched players); full effect when all players use it.
 DESC: Uses the code area 0x516e60-0x517c10 (file 0x116260; zero in every variant, see MV), .bss 0x6896e0-0x689800
 DESC: and the unused end of DGROUP 0x5a1600-0x5a1620 (beyond its file data).

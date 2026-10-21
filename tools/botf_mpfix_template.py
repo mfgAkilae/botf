@@ -22,7 +22,7 @@ Contents (details in README.md of https://github.com/mfgAkilae/botf):
   W/W2/W3 (counters reset on load), O, P, Q, G, CA, Z, IE (intel orders on elimination), S (heap lock),
   MV (the movie thread no longer reads the code area).
 """
-import os, shutil, sys
+import base64, os, shutil, struct, sys, zlib
 
 # (file offset, original bytes, patched bytes, group): group 0 is required, group 1 (Fix MS) is applied only where
 # all of its original bytes are found (the mods of the installer already changed that code)
@@ -31,10 +31,47 @@ PATCH = [
 ]
 SLEEP_OFF = #SLEEP_OFF#          # push 0x0a -> push 0x00 (identical to the community packet.patch)
 CAVE = (0x116260, 0x117200)       # must be zero before patching
+ORIG_SIZE = 1781248               # every trek.exe of the installer
+# Fix RY (automatic resync) lives in a new section appended to the file; its contents are zlib + base64 below.
+SECTION = #SECTION#
+
+
+def sections(d):
+    """(name, virtual size, virtual address, raw size, raw offset) of every section, PE header offset, table offset"""
+    e = struct.unpack_from('<I', d, 0x3c)[0]
+    n = struct.unpack_from('<H', d, e + 6)[0]
+    st = e + 24 + struct.unpack_from('<H', d, e + 20)[0]
+    secs = [(bytes(d[st + 40 * i:st + 40 * i + 8]).rstrip(b'\0').decode('latin1'),) + struct.unpack_from('<IIII', d, st + 40 * i + 8)
+            for i in range(n)]
+    return secs, e, st
+
+
+def section_blob():
+    blob = zlib.decompress(base64.b64decode(SECTION['data']))
+    assert len(blob) == SECTION['rsize']
+    return blob
+
+
+def add_section(d):
+    """append the resync section; the layout is the same in every trek.exe of the installer (checked here)"""
+    secs, e, st = sections(d)
+    opt = e + 24
+    sa = struct.unpack_from('<I', d, opt + 32)[0]
+    end = max(s[2] + max(s[1], s[3]) for s in secs)
+    rva = (end + sa - 1) // sa * sa
+    sh = st + 40 * len(secs)
+    if (rva != SECTION['rva'] or len(d) != ORIG_SIZE or sh + 40 > struct.unpack_from('<I', d, opt + 60)[0]
+            or any(d[sh:sh + 40])):
+        raise ValueError('unexpected file layout (sections end at %#x, file size %d)' % (rva, len(d)))
+    d[sh:sh + 40] = (SECTION['name'].encode().ljust(8, b'\0') +
+                     struct.pack('<IIIIIIHHI', SECTION['vsize'], rva, SECTION['rsize'], len(d), 0, 0, 0, 0, SECTION['chars']))
+    struct.pack_into('<H', d, e + 6, len(secs) + 1)
+    struct.pack_into('<I', d, opt + 56, (rva + SECTION['vsize'] + sa - 1) // sa * sa)
+    d.extend(section_blob())
 
 
 def status(d):
-    if len(d) != 1781248 or d[:2] != b'MZ':
+    if d[:2] != b'MZ' or len(d) not in (ORIG_SIZE, ORIG_SIZE + SECTION['rsize']):
         return 'unknown', 'Not a known trek.exe (size %d).' % len(d)
     req = [(o, a, b) for o, a, b, g in PATCH if g == 0]
     opt = [(o, a, b) for o, a, b, g in PATCH if g == 1]
@@ -42,9 +79,10 @@ def status(d):
     is_b = lambda e: d[e[0]:e[0] + len(e[2]) // 2] == bytes.fromhex(e[2])
     orig = all(is_a(e) for e in req)
     done = all(is_b(e) for e in req) and (all(is_b(e) for e in opt) or not all(is_a(e) for e in opt))
-    if done:
+    has_sec = any(s[0] == SECTION['name'] for s in sections(d)[0])
+    if done and has_sec and len(d) == ORIG_SIZE + SECTION['rsize'] and d[ORIG_SIZE:] == section_blob():
         return 'patched', 'The multiplayer fix is already installed.'
-    if orig and not any(d[CAVE[0]:CAVE[1]]):
+    if orig and not has_sec and len(d) == ORIG_SIZE and not any(d[CAVE[0]:CAVE[1]]):
         return 'original', 'Unmodified, compatible trek.exe.'
     bad = [hex(e[0]) for e in req if not is_a(e)]
     return 'incompatible', 'Unexpected bytes at offsets: ' + ', '.join(bad[:8])
@@ -93,6 +131,11 @@ def main():
         print('Fix MS left out: this trek.exe already has its own morale sum (mod).')
     if d[SLEEP_OFF] == 0x0a and d[SLEEP_OFF - 1] == 0x6a:
         d[SLEEP_OFF] = 0x00
+    try:
+        add_section(d)
+    except ValueError as ex:
+        print('ERROR: cannot add the resync section:', ex)
+        return 1
     open(path, 'wb').write(d)
     st2, _ = status(d)
     print('Done.' if st2 == 'patched' else 'ERROR while patching!')
